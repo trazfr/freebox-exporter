@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -284,15 +286,31 @@ func getContext(filename string) context {
 	}
 }
 
-func main() {
-	if len(os.Args) <= 1 {
-		fmt.Fprintf(os.Stderr, "usage: %s [configfile]\n", os.Args[0])
-		os.Exit(-1)
+func usage(err error) {
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
 	}
-	if true {
-		log.Init(ioutil.Discard, os.Stdout, os.Stdout, os.Stderr)
-	} else {
+	fmt.Fprintln(os.Stderr, "Usage:", os.Args[0], "[options] <configfile>")
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(os.Stderr, "Options:")
+	flag.PrintDefaults()
+	os.Exit(-1)
+}
+
+func main() {
+	debugPtr := flag.Bool("debug", false, "enable the debug mode")
+	flag.Parse()
+
+	args := flag.Args()
+	if len(args) < 1 {
+		usage(errors.New("configfile not defined"))
+	} else if len(args) > 1 {
+		usage(errors.New("invalid configfile"))
+	}
+	if *debugPtr {
 		log.Init(os.Stdout, os.Stdout, os.Stdout, os.Stderr)
+	} else {
+		log.Init(ioutil.Discard, os.Stdout, os.Stdout, os.Stderr)
 	}
 	context := getContext(os.Args[1])
 	defer func() { context.freebox.Logout() }()

@@ -1,9 +1,5 @@
 package fbx
 
-import (
-	"fmt"
-)
-
 // MetricsFreeboxSystem https://dev.freebox.fr/sdk/os/system/
 type MetricsFreeboxSystem struct {
 	FirmwareVersion  string `json:"firmware_version"`
@@ -99,62 +95,34 @@ type MetricsFreeboxConnectionAll struct {
 // GetMetricsSystem http://mafreebox.freebox.fr/api/v5/system/
 func (f *FreeboxConnection) GetMetricsSystem() (*MetricsFreeboxSystem, error) {
 	res := new(MetricsFreeboxSystem)
-	callRes := struct {
-		freeboxResponseBase
-		Result *MetricsFreeboxSystem `json:"result"`
-	}{
-		Result: res,
-	}
-	err := f.get(&callRes, "system")
-	if callRes.Success == true || err != nil {
-		return res, err
-	}
-	return nil, fmt.Errorf("GET system: success=false erc=%q msg=%q", callRes.ErrorCode, callRes.Message)
+	err := f.get(res, "system")
+	return res, err
 }
 
 // GetMetricsConnection http://mafreebox.freebox.fr/api/v5/connection/
 func (f *FreeboxConnection) GetMetricsConnection() (*MetricsFreeboxConnectionAll, error) {
 	result := new(MetricsFreeboxConnectionAll)
-	{
-		metricsCnx := struct {
-			freeboxResponseBase
-			Result *MetricsFreeboxConnection `json:"result"`
-		}{
-			Result: &result.MetricsFreeboxConnection,
-		}
-		if err := f.get(&metricsCnx, "connection"); err != nil {
-			return nil, err
-		}
+	if err := f.get(result, "connection"); err != nil {
+		return nil, err
 	}
 
 	switch result.Media {
 	case "xdsl":
 		// http://mafreebox.freebox.fr/api/v5/connection/xdsl/
 		// https://dev.freebox.fr/sdk/os/connection/#get-the-current-xdsl-infos
-		result.Xdsl = new(MetricsFreeboxConnectionXdsl)
-		metricsXdsl := struct {
-			freeboxResponseBase
-			Result *MetricsFreeboxConnectionXdsl `json:"result"`
-		}{
-			Result: result.Xdsl,
-		}
-
-		if err := f.get(&metricsXdsl, "connection/xdsl"); err != nil {
+		xdsl := new(MetricsFreeboxConnectionXdsl)
+		if err := f.get(xdsl, "connection/xdsl"); err != nil {
 			return nil, err
 		}
+		result.Xdsl = xdsl
 	case "ftth":
 		// http://mafreebox.freebox.fr/api/v5/connection/ftth/
 		// https://dev.freebox.fr/sdk/os/connection/#get-the-current-ftth-status
-		result.Ftth = new(MetricsFreeboxConnectionFtth)
-		metricsFtth := struct {
-			freeboxResponseBase
-			Result *MetricsFreeboxConnectionFtth `json:"result"`
-		}{
-			Result: result.Ftth,
-		}
-		if err := f.get(&metricsFtth, "connection/ftth"); err != nil {
+		ftth := new(MetricsFreeboxConnectionFtth)
+		if err := f.get(ftth, "connection/ftth"); err != nil {
 			return nil, err
 		}
+		result.Ftth = ftth
 	}
 
 	return result, nil

@@ -42,7 +42,7 @@ S27oDfFq04XSox7JM9HdTt2hLK96x1T7FpFrBTnALzb7vHv9MhXqAT90fPR/8A==
 `
 )
 
-func NewTlsConfig() *tls.Config {
+func newTlsConfig() *tls.Config {
 	caCertPool := x509.NewCertPool()
 	if caCertPool.AppendCertsFromPEM([]byte(FreeboxRootCA)) == false {
 		panic("Could not add the certificate")

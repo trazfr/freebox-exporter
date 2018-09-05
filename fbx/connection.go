@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"reflect"
@@ -16,6 +17,11 @@ import (
 	"time"
 
 	"github.com/trazfr/freebox-exporter/log"
+)
+
+var (
+	errAuthRequired = errors.New("auth_required")
+	errInvalidToken = errors.New("invalid_token")
 )
 
 type FreeboxAPIVersion struct {
@@ -45,38 +51,34 @@ type freeboxAuthorizePostRequest struct {
 	DeviceName string `json:"device_name"`
 }
 
-type freeboxResponseBase struct {
-	Success   bool   `json:"success"`
-	Message   string `json:"msg"`
-	ErrorCode string `json:"error_code"`
-}
-
-type freeboxResponseResultBase struct {
-	Challenge    string `json:"challenge"`
-	PasswordSalt string `json:"password_salt"`
-}
-
 const (
 	apiVersionURL = "http://mafreebox.freebox.fr/api_version"
 )
 
-func getChallengeAuthorizationRequest() freeboxAuthorizePostRequest {
-	hostname, err := os.Hostname()
-	if err != nil {
-		panic(err)
+var (
+	authRequest *freeboxAuthorizePostRequest
+)
+
+func getChallengeAuthorizationRequest() *freeboxAuthorizePostRequest {
+	if authRequest == nil {
+		hostname, err := os.Hostname()
+		if err != nil {
+			panic(err)
+		}
+		authRequest = &freeboxAuthorizePostRequest{
+			AppID:      "com.github.trazfr.fboxexp",
+			AppName:    "prometheus-freebox-exporter",
+			AppVersion: "0.0.1",
+			DeviceName: hostname,
+		}
 	}
-	return freeboxAuthorizePostRequest{
-		AppID:      "com.github.trazfr.fboxexp",
-		AppName:    "prometheus-freebox-exporter",
-		AppVersion: "0.0.1",
-		DeviceName: hostname,
-	}
+	return authRequest
 }
 
-func newHttpClient() *http.Client {
+func newHTTPClient() *http.Client {
 	return &http.Client{
 		Transport: &http.Transport{
-			TLSClientConfig:    NewTlsConfig(),
+			TLSClientConfig:    newTlsConfig(),
 			MaxIdleConns:       10,
 			IdleConnTimeout:    30 * time.Second,
 			DisableCompression: true,
@@ -85,15 +87,7 @@ func newHttpClient() *http.Client {
 	}
 }
 
-func getField(i interface{}, fieldNames ...string) string {
-	log.Debug.Println(i, fieldNames)
-	if s, ok := i.(string); ok && len(fieldNames) == 0 {
-		return s
-	}
-
-	fieldName := fieldNames[0]
-	nextFields := fieldNames[1:]
-
+func getField(i interface{}, fieldName string) interface{} {
 	value := reflect.ValueOf(i)
 	if value.Type().Kind() == reflect.Ptr {
 		value = value.Elem()
@@ -102,7 +96,7 @@ func getField(i interface{}, fieldNames ...string) string {
 	if field.IsValid() == false {
 		return ""
 	}
-	return getField(field.Interface(), nextFields...)
+	return field.Interface()
 }
 
 /*
@@ -162,16 +156,11 @@ func (f *FreeboxAPIVersion) refresh(client *http.Client) error {
 
 func NewFreeboxConnection() *FreeboxConnection {
 	return &FreeboxConnection{
-		client:       newHttpClient(),
-		API:          FreeboxAPIVersion{},
-		AppToken:     "",
-		challenge:    "",
-		passwordSalt: "",
+		client: newHTTPClient(),
 	}
 }
 
 func (f *FreeboxConnection) call(auth bool, method string, path string, pathFmt []interface{}, body interface{}, out interface{}) error {
-	auth = auth && f.sessionToken != ""
 	url, err := f.API.getURL(path, pathFmt)
 	if err != nil {
 		return err
@@ -179,14 +168,13 @@ func (f *FreeboxConnection) call(auth bool, method string, path string, pathFmt 
 	log.Debug.Println(method, url)
 
 	var bodyReader io.Reader
-	{
+	if body != nil {
 		buffer := new(bytes.Buffer)
 		if err := json.NewEncoder(buffer).Encode(body); err != nil {
 			return err
 		}
 		bodyReader = buffer
 	}
-
 	req, err := http.NewRequest(method, url, bodyReader)
 	if err != nil {
 		return err
@@ -194,33 +182,60 @@ func (f *FreeboxConnection) call(auth bool, method string, path string, pathFmt 
 	if req.Body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if auth {
+	if auth && f.sessionToken != "" {
 		req.Header.Set("X-Fbx-App-Auth", f.sessionToken)
 	}
 	res, err := f.client.Do(req)
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
-	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+	resBytes, err := ioutil.ReadAll(res.Body)
+	res.Body.Close()
+	if err != nil {
 		return err
 	}
-	// if we have a result.challenge / result.password_salt, take it
-	needSessionTokenRefresh := false
-	if s := getField(out, "Result", "Challenge"); s != "" && s != f.challenge {
-		f.challenge = s
-		needSessionTokenRefresh = true
+
+	{
+		buf := bytes.NewBuffer(resBytes)
+		r := struct {
+			Success   bool   `json:"success"`
+			Message   string `json:"msg"`
+			ErrorCode string `json:"error_code"`
+			Result    struct {
+				Challenge    string `json:"challenge"`
+				PasswordSalt string `json:"password_salt"`
+			} `json:"result"`
+		}{}
+		if err := json.NewDecoder(buf).Decode(&r); err != nil {
+			return err
+		}
+		if r.Success == false {
+			switch r.ErrorCode {
+			case "auth_required":
+				return errAuthRequired
+			case "invalid_token":
+				return errInvalidToken
+			}
+			return fmt.Errorf("%s %s error_code=%s msg=%s", method, url, r.ErrorCode, r.Message)
+		}
+		if f.challenge == "" || f.sessionToken != "" {
+			f.refreshSessionToken(r.Result.Challenge)
+		}
 	}
-	if s := getField(out, "Result", "PasswordSalt"); s != "" && s != f.passwordSalt {
-		f.passwordSalt = s
-		needSessionTokenRefresh = true
-	}
-	if needSessionTokenRefresh {
-		if f.refreshSessionToken(false) == false {
-			return errors.New("Could not refresh the session token")
+
+	if out != nil {
+		buf := bytes.NewBuffer(resBytes)
+		r := struct {
+			Result interface{} `json:"result"`
+		}{
+			Result: out,
+		}
+		if err := json.NewDecoder(buf).Decode(&r); err != nil {
+			return err
 		}
 	}
 	return nil
+
 }
 
 func (f *FreeboxConnection) get(out interface{}, path string, pathFmt ...interface{}) error {
@@ -237,16 +252,12 @@ func (f *FreeboxConnection) post(in interface{}, out interface{}, path string, p
 
 func (f *FreeboxConnection) test(auth bool) error {
 	r := struct {
-		freeboxResponseBase
-		Result struct {
-			freeboxResponseResultBase
-			LoggedIn bool `json:"logged_in"`
-		} `json:"result"`
+		LoggedIn bool `json:"logged_in"`
 	}{}
 	if err := f.getInternal(auth, &r, "login"); err != nil {
 		return err
 	}
-	if auth && r.Result.LoggedIn != true {
+	if auth && r.LoggedIn == false {
 		return errors.New("Not logged in")
 	}
 	return nil
@@ -254,67 +265,43 @@ func (f *FreeboxConnection) test(auth bool) error {
 
 func (f *FreeboxConnection) askAuthorization() error {
 	postResponse := struct {
-		freeboxResponseBase
-		Result struct {
-			freeboxResponseResultBase
-			AppToken string `json:"app_token"`
-			TrackID  int64  `json:"track_id"`
-		} `json:"result"`
+		AppToken string `json:"app_token"`
+		TrackID  int64  `json:"track_id"`
 	}{}
 	if err := f.post(getChallengeAuthorizationRequest(), &postResponse, "login/authorize"); err != nil {
 		return err
 	}
-	if postResponse.Success == false {
-		return fmt.Errorf("The POST to login/authorize/ failed: code=\"%v\" msg=\"%v\"", postResponse.ErrorCode, postResponse.Message)
-	}
-	f.AppToken = postResponse.Result.AppToken
+	f.AppToken = postResponse.AppToken
 
-	pending := false
+	counter := 0
 	accessGranted := false
 	for accessGranted == false {
+		counter++
 		r := struct {
-			freeboxResponseBase
-			Result struct {
-				freeboxResponseResultBase
-				Status string `json:"status"`
-			} `json:"result"`
+			Status string `json:"status"`
 		}{}
-		if err := f.get(&r, "login/authorize/%d", postResponse.Result.TrackID); err != nil {
+		if err := f.get(&r, "login/authorize/%d", postResponse.TrackID); err != nil {
 			return err
 		}
-		if postResponse.Success == false {
-			return errors.New("The GET to login/authorize failed")
-		}
-		switch r.Result.Status {
+		switch r.Status {
 		case "pending":
-			if pending == false {
-				fmt.Println("Please accept the login on the Freebox Server")
-				pending = true
-			}
+			fmt.Println(counter, "Please accept the login on the Freebox Server")
 			time.Sleep(10 * time.Second)
 		case "granted":
 			accessGranted = true
 		default:
-			return fmt.Errorf("Access is %s", r.Result.Status)
+			return fmt.Errorf("Access is %s", r.Status)
 		}
 	}
 	return nil
 }
 
-func (f *FreeboxConnection) refreshSessionToken(force bool) (ok bool) {
-	log.Debug.Println("Refresh session token. Force:", force)
-	oldChallenge := f.challenge
-	if force || f.challenge == "" {
-		if err := f.test(false); err != nil {
-			log.Error.Println("Refresh token:", err.Error())
-			return false
-		}
+func (f *FreeboxConnection) refreshSessionToken(challenge string) bool {
+	if challenge != "" && challenge != f.challenge {
+		f.challenge = challenge
+		f.sessionToken = ""
 	}
-	if f.challenge == "" {
-		panic("No challenge...")
-	}
-
-	if f.AppToken != "" && oldChallenge != f.challenge {
+	if f.AppToken != "" && f.sessionToken == "" {
 		hash := hmac.New(sha1.New, []byte(f.AppToken))
 		hash.Write([]byte(f.challenge))
 		password := hex.EncodeToString(hash.Sum(nil))
@@ -328,23 +315,15 @@ func (f *FreeboxConnection) refreshSessionToken(force bool) (ok bool) {
 			Password: password,
 		}
 		res := struct {
-			freeboxResponseBase
-			Result struct {
-				freeboxResponseResultBase
-				SessionToken string `json:"session_token"`
-			} `json:"result"`
+			SessionToken string `json:"session_token"`
 		}{}
 		f.sessionToken = ""
-		if err := f.post(&req, &res, "login/session"); err == nil {
-			log.Debug.Println("login result:", res.Success, "token:", res.Result.SessionToken)
-			if res.Success && res.Result.SessionToken != "" {
-				f.sessionToken = res.Result.SessionToken
-				return true
-			}
+		if err := f.post(&req, &res, "login/session"); err != nil {
+			return false
 		}
-		return false
+		f.sessionToken = res.SessionToken
 	}
-	return f.AppToken != ""
+	return f.sessionToken != ""
 }
 
 func (f *FreeboxConnection) Login() error {
@@ -354,20 +333,31 @@ func (f *FreeboxConnection) Login() error {
 		}
 	}
 
-	if f.refreshSessionToken(true) == true {
-		return nil
-	}
-
-	err := f.askAuthorization()
-	if err == nil {
-		if f.refreshSessionToken(false) == false {
-			return errors.New("Could not refresh the session token")
+	if f.AppToken == "" {
+		err := f.askAuthorization()
+		if err != nil {
+			return err
+		}
+	} else {
+		// refresh challenge
+		if err := f.test(false); err != nil {
+			return fmt.Errorf("Could not refresh the session token \"%v\"", err.Error())
 		}
 	}
-	return err
+
+	// test login
+	if err := f.test(true); err != nil {
+		return fmt.Errorf("Login test failed \"%v\"", err.Error())
+	}
+
+	if f.challenge == "" {
+		f.AppToken = ""
+		return f.Login()
+	}
+
+	return nil
 }
 
 func (f *FreeboxConnection) Logout() error {
-	res := freeboxResponseBase{}
-	return f.post(nil, &res, "logout")
+	return f.post(nil, nil, "logout")
 }
