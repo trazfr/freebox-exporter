@@ -1,11 +1,9 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -106,7 +104,6 @@ var (
 )
 
 type context struct {
-	client  *http.Client
 	freebox *fbx.FreeboxConnection
 	used    map[prometheus.Metric]bool
 }
@@ -245,45 +242,39 @@ func (c *context) use(i prometheus.Metric) bool {
 	return found || len(c.used) == 0
 }
 
-func decodeFromFile(file io.Reader, fb *fbx.FreeboxConnection) bool {
-	if err := json.NewDecoder(file).Decode(fb); err != nil {
-		return false
-	}
-	if fb.AppToken == "" {
-		return false
-	}
-	if err := fb.Login(); err != nil {
-		log.Debug.Println("Decoding file:", err)
-		return false
-	}
-	return true
-}
-
 func getContext(filename string) context {
-	connection := fbx.NewFreeboxConnection()
-	tryConnect := true
-	if r, err := os.Open(filename); err == nil {
-		defer r.Close()
-		tryConnect = !decodeFromFile(r, connection)
+	result := context{
+		used: make(map[prometheus.Metric]bool),
 	}
-	if tryConnect {
-		if err := connection.Login(); err != nil {
+	newConfig := false
+	if r, err := os.Open(filename); err == nil {
+		log.Info.Println("Use configuration file", filename)
+		defer r.Close()
+		result.freebox, err = fbx.NewFreeboxConnectionFromConfig(r)
+		if err != nil {
 			panic(err)
 		}
+	} else {
+		log.Info.Println("Could not find the configuration file", filename)
+		newConfig = true
+		result.freebox, err = fbx.NewFreeboxConnection()
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	if newConfig {
+		log.Info.Println("Write the configuration file", filename)
 		w, err := os.Create(filename)
 		if err != nil {
 			panic(err)
 		}
 		defer w.Close()
-		if err := json.NewEncoder(w).Encode(connection); err != nil {
+		if err := result.freebox.WriteConfig(w); err != nil {
 			panic(err)
 		}
 	}
-
-	return context{
-		freebox: connection,
-		used:    make(map[prometheus.Metric]bool),
-	}
+	return result
 }
 
 func usage(err error) {
@@ -312,8 +303,8 @@ func main() {
 	} else {
 		log.Init(ioutil.Discard, os.Stdout, os.Stdout, os.Stderr)
 	}
-	context := getContext(os.Args[1])
-	defer func() { context.freebox.Logout() }()
+	context := getContext(args[0])
+	defer func() { context.freebox.Close() }()
 
 	prometheus.MustRegister(&context)
 

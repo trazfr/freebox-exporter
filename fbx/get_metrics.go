@@ -95,14 +95,14 @@ type MetricsFreeboxConnectionAll struct {
 // GetMetricsSystem http://mafreebox.freebox.fr/api/v5/system/
 func (f *FreeboxConnection) GetMetricsSystem() (*MetricsFreeboxSystem, error) {
 	res := new(MetricsFreeboxSystem)
-	err := f.get(res, "system")
+	err := f.get("system/", res)
 	return res, err
 }
 
 // GetMetricsConnection http://mafreebox.freebox.fr/api/v5/connection/
 func (f *FreeboxConnection) GetMetricsConnection() (*MetricsFreeboxConnectionAll, error) {
 	result := new(MetricsFreeboxConnectionAll)
-	if err := f.get(result, "connection"); err != nil {
+	if err := f.get("connection/", result); err != nil {
 		return nil, err
 	}
 
@@ -111,7 +111,7 @@ func (f *FreeboxConnection) GetMetricsConnection() (*MetricsFreeboxConnectionAll
 		// http://mafreebox.freebox.fr/api/v5/connection/xdsl/
 		// https://dev.freebox.fr/sdk/os/connection/#get-the-current-xdsl-infos
 		xdsl := new(MetricsFreeboxConnectionXdsl)
-		if err := f.get(xdsl, "connection/xdsl"); err != nil {
+		if err := f.get("connection/xdsl/", xdsl); err != nil {
 			return nil, err
 		}
 		result.Xdsl = xdsl
@@ -119,7 +119,7 @@ func (f *FreeboxConnection) GetMetricsConnection() (*MetricsFreeboxConnectionAll
 		// http://mafreebox.freebox.fr/api/v5/connection/ftth/
 		// https://dev.freebox.fr/sdk/os/connection/#get-the-current-ftth-status
 		ftth := new(MetricsFreeboxConnectionFtth)
-		if err := f.get(ftth, "connection/ftth"); err != nil {
+		if err := f.get("connection/ftth", ftth); err != nil {
 			return nil, err
 		}
 		result.Ftth = ftth
