@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"reflect"
 
 	"github.com/trazfr/freebox-exporter/log"
 )
@@ -20,24 +19,12 @@ type FreeboxConnection struct {
 	config  config
 }
 
-func getField(i interface{}, fieldName string) interface{} {
-	value := reflect.ValueOf(i)
-	if value.Type().Kind() == reflect.Ptr {
-		value = value.Elem()
-	}
-	field := value.FieldByName(fieldName)
-	if field.IsValid() == false {
-		return ""
-	}
-	return field.Interface()
-}
-
 /*
  * FreeboxConnection
  */
 
-func NewFreeboxConnection() (*FreeboxConnection, error) {
-	client := NewFreeboxHttpClient()
+func NewFreeboxConnection(debug bool) (*FreeboxConnection, error) {
+	client := NewFreeboxHttpClient(debug)
 	apiVersion, err := NewFreeboxAPIVersionHTTP(client)
 	if err != nil {
 		return nil, err
@@ -61,8 +48,8 @@ func NewFreeboxConnection() (*FreeboxConnection, error) {
 	}, nil
 }
 
-func NewFreeboxConnectionFromConfig(reader io.Reader) (*FreeboxConnection, error) {
-	client := NewFreeboxHttpClient()
+func NewFreeboxConnectionFromConfig(debug bool, reader io.Reader) (*FreeboxConnection, error) {
+	client := NewFreeboxHttpClient(debug)
 	config := config{}
 	if err := json.NewDecoder(reader).Decode(&config); err != nil {
 		return nil, err

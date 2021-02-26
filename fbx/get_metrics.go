@@ -2,35 +2,44 @@ package fbx
 
 // MetricsFreeboxSystem https://dev.freebox.fr/sdk/os/system/
 type MetricsFreeboxSystem struct {
-	FirmwareVersion  string `json:"firmware_version"`
-	Mac              string `json:"mac"`
-	Serial           string `json:"serial"`
-	Uptime           string `json:"uptime"`
-	UptimeValue      *int64 `json:"uptime_val"`
-	BoardName        string `json:"board_name"`
-	TempCPUM         *int64 `json:"temp_cpum"`
-	TempSW           *int64 `json:"temp_sw"`
-	TempCPUB         *int64 `json:"temp_cpub"`
-	FanRpm           *int64 `json:"fan_rpm"`
-	BoxAuthenticated *bool  `json:"box_authenticated"`
-	DiskStatus       string `json:"disk_status"`
-	BoxFlavor        string `json:"box_flavor"`
-	UserMainStorage  string `json:"user_main_storage"`
+	FirmwareVersion  string                 `json:"firmware_version"`
+	Mac              string                 `json:"mac"`
+	Serial           string                 `json:"serial"`
+	Uptime           string                 `json:"uptime"`
+	UptimeValue      *int64                 `json:"uptime_val"`
+	BoardName        string                 `json:"board_name"`
+	TempCPUM         *int64                 `json:"temp_cpum"` // seems deprecated
+	TempSW           *int64                 `json:"temp_sw"`   // seems deprecated
+	TempCPUB         *int64                 `json:"temp_cpub"` // seems deprecated
+	FanRpm           *int64                 `json:"fan_rpm"`
+	BoxAuthenticated *bool                  `json:"box_authenticated"`
+	DiskStatus       string                 `json:"disk_status"`
+	BoxFlavor        string                 `json:"box_flavor"`
+	UserMainStorage  string                 `json:"user_main_storage"`
+	Sensors          []MetricsFreeboxSensor `json:"sensors"` // undocumented
+	Fans             []MetricsFreeboxSensor `json:"fans"`    // undocumented
+}
+
+// MetricsFreeboxSensor undocumented
+type MetricsFreeboxSensor struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Value *int64 `json:"value"`
 }
 
 // MetricsFreeboxConnection https://dev.freebox.fr/sdk/os/connection/
 type MetricsFreeboxConnection struct {
-	State        string `json:"state"`
-	Type         string `json:"type"`
-	Media        string `json:"media"`
-	IPv4         string `json:"ipv4"`
-	IPv6         string `json:"ipv6"`
-	RateUp       *int64 `json:"rate_up"`
-	RateDown     *int64 `json:"rate_down"`
-	BandwithUp   *int64 `json:"bandwith_up"`
-	BandwithDown *int64 `json:"bandwith_down"`
-	BytesUp      *int64 `json:"bytes_up"`
-	BytesDown    *int64 `json:"bytes_down"`
+	State         string `json:"state"`
+	Type          string `json:"type"`
+	Media         string `json:"media"`
+	IPv4          string `json:"ipv4"`
+	IPv6          string `json:"ipv6"`
+	RateUp        *int64 `json:"rate_up"`
+	RateDown      *int64 `json:"rate_down"`
+	BandwidthUp   *int64 `json:"bandwidth_up"`
+	BandwidthDown *int64 `json:"bandwidth_down"`
+	BytesUp       *int64 `json:"bytes_up"`
+	BytesDown     *int64 `json:"bytes_down"`
 	// ipv4_port_range
 }
 
@@ -119,7 +128,7 @@ func (f *FreeboxConnection) GetMetricsConnection() (*MetricsFreeboxConnectionAll
 		// http://mafreebox.freebox.fr/api/v5/connection/ftth/
 		// https://dev.freebox.fr/sdk/os/connection/#get-the-current-ftth-status
 		ftth := new(MetricsFreeboxConnectionFtth)
-		if err := f.get("connection/ftth", ftth); err != nil {
+		if err := f.get("connection/ftth/", ftth); err != nil {
 			return nil, err
 		}
 		result.Ftth = ftth

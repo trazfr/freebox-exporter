@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"time"
@@ -19,14 +20,27 @@ var (
 )
 
 type FreeboxHttpClient struct {
-	client http.Client
-	ctx    context.Context
+	client  http.Client
+	ctx     context.Context
+	decoder func(io.Reader, interface{}) error
 }
 
 type FreeboxHttpClientCallback func(*http.Request)
 
-func NewFreeboxHttpClient() *FreeboxHttpClient {
-	return &FreeboxHttpClient{
+func jsonDecoder(reader io.Reader, out interface{}) error {
+	return json.NewDecoder(reader).Decode(out)
+}
+func jsonDebugDecoder(reader io.Reader, out interface{}) error {
+	data, err := ioutil.ReadAll(reader)
+	if err != nil {
+		return err
+	}
+	log.Debug.Println("JSON data:", string(data))
+	return jsonDecoder(bytes.NewBuffer(data), out)
+}
+
+func NewFreeboxHttpClient(debug bool) *FreeboxHttpClient {
+	result := &FreeboxHttpClient{
 		client: http.Client{
 			Transport: &http.Transport{
 				TLSClientConfig:    newTLSConfig(),
@@ -36,8 +50,16 @@ func NewFreeboxHttpClient() *FreeboxHttpClient {
 			},
 			Timeout: 10 * time.Second,
 		},
-		ctx: context.Background(),
+		ctx:     context.Background(),
+		decoder: jsonDecoder,
 	}
+
+	if debug {
+		log.Debug.Println("Debug enabled")
+		result.decoder = jsonDebugDecoder
+	}
+
+	return result
 }
 
 func (f *FreeboxHttpClient) Get(url string, out interface{}, callbacks ...FreeboxHttpClientCallback) error {
@@ -74,12 +96,10 @@ func (f *FreeboxHttpClient) do(req *http.Request, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	resBytes, err := ioutil.ReadAll(res.Body)
-	res.Body.Close()
+	defer res.Body.Close()
 	if err != nil {
 		return err
 	}
-	log.Debug.Println("Response:", string(resBytes))
 
 	r := struct {
 		Success   bool        `json:"success"`
@@ -89,7 +109,7 @@ func (f *FreeboxHttpClient) do(req *http.Request, out interface{}) error {
 	}{
 		Result: out,
 	}
-	if err := json.NewDecoder(bytes.NewBuffer(resBytes)).Decode(&r); err != nil {
+	if err := f.decoder(res.Body, &r); err != nil {
 		return err
 	}
 	if r.Success == false {
