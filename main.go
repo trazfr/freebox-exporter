@@ -27,6 +27,7 @@ func usage(err error) {
 
 func main() {
 	debugPtr := flag.Bool("debug", false, "enable the debug mode")
+	listHostsPtr := flag.Bool("listHosts", false, "list the hosts connected to wifi and ethernet")
 	listenPtr := flag.String("listen", ":9091", "listen to address")
 	flag.Parse()
 
@@ -41,7 +42,7 @@ func main() {
 	} else {
 		log.Init(ioutil.Discard, os.Stdout, os.Stdout, os.Stderr)
 	}
-	collector := NewCollector(*debugPtr, args[0])
+	collector := NewCollector(args[0], *listHostsPtr, *debugPtr)
 	defer collector.Close()
 
 	prometheus.MustRegister(collector)

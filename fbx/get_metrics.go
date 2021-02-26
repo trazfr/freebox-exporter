@@ -1,27 +1,34 @@
 package fbx
 
+import (
+	"fmt"
+	"sync"
+
+	"github.com/trazfr/freebox-exporter/log"
+)
+
 // MetricsFreeboxSystem https://dev.freebox.fr/sdk/os/system/
 type MetricsFreeboxSystem struct {
-	FirmwareVersion  string                 `json:"firmware_version"`
-	Mac              string                 `json:"mac"`
-	Serial           string                 `json:"serial"`
-	Uptime           string                 `json:"uptime"`
-	UptimeValue      *int64                 `json:"uptime_val"`
-	BoardName        string                 `json:"board_name"`
-	TempCPUM         *int64                 `json:"temp_cpum"` // seems deprecated
-	TempSW           *int64                 `json:"temp_sw"`   // seems deprecated
-	TempCPUB         *int64                 `json:"temp_cpub"` // seems deprecated
-	FanRpm           *int64                 `json:"fan_rpm"`
-	BoxAuthenticated *bool                  `json:"box_authenticated"`
-	DiskStatus       string                 `json:"disk_status"`
-	BoxFlavor        string                 `json:"box_flavor"`
-	UserMainStorage  string                 `json:"user_main_storage"`
-	Sensors          []MetricsFreeboxSensor `json:"sensors"` // undocumented
-	Fans             []MetricsFreeboxSensor `json:"fans"`    // undocumented
+	FirmwareVersion  string                       `json:"firmware_version"`
+	Mac              string                       `json:"mac"`
+	Serial           string                       `json:"serial"`
+	Uptime           string                       `json:"uptime"`
+	UptimeValue      *int64                       `json:"uptime_val"`
+	BoardName        string                       `json:"board_name"`
+	TempCPUM         *int64                       `json:"temp_cpum"` // seems deprecated
+	TempSW           *int64                       `json:"temp_sw"`   // seems deprecated
+	TempCPUB         *int64                       `json:"temp_cpub"` // seems deprecated
+	FanRpm           *int64                       `json:"fan_rpm"`
+	BoxAuthenticated *bool                        `json:"box_authenticated"`
+	DiskStatus       string                       `json:"disk_status"`
+	BoxFlavor        string                       `json:"box_flavor"`
+	UserMainStorage  string                       `json:"user_main_storage"`
+	Sensors          []MetricsFreeboxSystemSensor `json:"sensors"` // undocumented
+	Fans             []MetricsFreeboxSystemSensor `json:"fans"`    // undocumented
 }
 
-// MetricsFreeboxSensor undocumented
-type MetricsFreeboxSensor struct {
+// MetricsFreeboxSystemSensor undocumented
+type MetricsFreeboxSystemSensor struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
 	Value *int64 `json:"value"`
@@ -101,6 +108,60 @@ type MetricsFreeboxConnectionAll struct {
 	Ftth *MetricsFreeboxConnectionFtth
 }
 
+// MetricsFreeboxSwitch https://dev.freebox.fr/sdk/os/switch/
+type MetricsFreeboxSwitch struct {
+	Ports []*MetricsFreeboxSwitchStatus
+}
+
+// MetricsFreeboxSwitchStatus https://dev.freebox.fr/sdk/os/switch/
+type MetricsFreeboxSwitchStatus struct {
+	ID      int64  `json:"id"`
+	Duplex  string `json:"duplex"`
+	Link    string `json:"link"`
+	Mode    string `json:"mode"`
+	Speed   string `json:"speed"`
+	MacList []struct {
+		Mac      string `json:"mac"`
+		Hostname string `json:"hostname"`
+	} `json:"mac_list"`
+	Stats *MetricsFreeboxSwitchPortStats `json:"-"`
+}
+
+// MetricsFreeboxSwitchPortStats https://dev.freebox.fr/sdk/os/switch/#switch-port-stats-object-unstable
+type MetricsFreeboxSwitchPortStats struct {
+	RxBadBytes         *int64 `json:"rx_bad_bytes"`
+	RxBroadcastPackets *int64 `json:"rx_broadcast_packets"`
+	RxBytesRate        *int64 `json:"rx_bytes_rate"`
+	RxErrPackets       *int64 `json:"rx_err_packets"`
+	RxFcsPackets       *int64 `json:"rx_fcs_packets"`
+	RxFragmentsPackets *int64 `json:"rx_fragments_packets"`
+	RxGoodBytes        *int64 `json:"rx_good_bytes"`
+	RxGoodPackets      *int64 `json:"rx_good_packets"`
+	RxJabberPackets    *int64 `json:"rx_jabber_packets"`
+	RxMulticastPackets *int64 `json:"rx_multicast_packets"`
+	RxOversizePackets  *int64 `json:"rx_oversize_packets"`
+	RxPacketsRate      *int64 `json:"rx_packets_rate"`
+	RxPause            *int64 `json:"rx_pause"`
+	RxUndersizePackets *int64 `json:"rx_undersize_packets"`
+	RxUnicastPackets   *int64 `json:"rx_unicast_packets"`
+
+	TxBroadcastPackets *int64 `json:"tx_broadcast_packets"`
+	TxBytes            *int64 `json:"tx_bytes"`
+	TxBytesRate        *int64 `json:"tx_bytes_rate"`
+	TxCollisions       *int64 `json:"tx_collisions"`
+	TxDeferred         *int64 `json:"tx_deferred"`
+	TxExcessive        *int64 `json:"tx_excessive"`
+	TxFcs              *int64 `json:"tx_fcs"`
+	TxLate             *int64 `json:"tx_late"`
+	TxMulticastPackets *int64 `json:"tx_multicast_packets"`
+	TxMultiple         *int64 `json:"tx_multiple"`
+	TxPackets          *int64 `json:"tx_packets"`
+	TxPacketsRate      *int64 `json:"tx_packets_rate"`
+	TxPause            *int64 `json:"tx_pause"`
+	TxSingle           *int64 `json:"tx_single"`
+	TxUnicastPackets   *int64 `json:"tx_unicast_packets"`
+}
+
 // GetMetricsSystem http://mafreebox.freebox.fr/api/v5/system/
 func (f *FreeboxConnection) GetMetricsSystem() (*MetricsFreeboxSystem, error) {
 	res := new(MetricsFreeboxSystem)
@@ -135,4 +196,33 @@ func (f *FreeboxConnection) GetMetricsConnection() (*MetricsFreeboxConnectionAll
 	}
 
 	return result, nil
+}
+
+// GetMetricsSwitch http://mafreebox.freebox.fr/api/v5/switch/status/
+func (f *FreeboxConnection) GetMetricsSwitch() (*MetricsFreeboxSwitch, error) {
+	res := new(MetricsFreeboxSwitch)
+	err := f.get("switch/status/", &res.Ports)
+	if err != nil {
+		return nil, err
+	}
+
+	wg := sync.WaitGroup{}
+	wg.Add(len(res.Ports))
+
+	for _, port := range res.Ports {
+		go func(port *MetricsFreeboxSwitchStatus) {
+			defer wg.Done()
+			stats := new(MetricsFreeboxSwitchPortStats)
+			// http://mafreebox.freebox.fr/api/v5/switch/port/1/stats
+			err := f.get(fmt.Sprintf("switch/port/%d/stats", port.ID), stats)
+			if err != nil {
+				log.Warning.Println("Could not get status of port", port.ID)
+				return
+			}
+			port.Stats = stats
+		}(port)
+	}
+
+	wg.Wait()
+	return res, err
 }

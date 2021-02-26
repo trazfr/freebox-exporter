@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -32,10 +33,6 @@ var (
 		metricPrefix+"system_fan_rpm",
 		"fan rpm",
 		[]string{"id"}, nil)
-	promDescConnectionRate = prometheus.NewDesc(
-		metricPrefix+"connection_rate",
-		"current upload/download rate in byte/s",
-		[]string{"dir"}, nil) // up/down. XXX delme?
 	promDescConnectionBandwith = prometheus.NewDesc(
 		metricPrefix+"connection_bandwith_bps",
 		"available upload/download bandwidth in bit/s",
@@ -44,6 +41,7 @@ var (
 		metricPrefix+"connection_bytes",
 		"total uploaded/downloaded bytes since last connection",
 		[]string{"dir"}, nil) // up/down
+
 	promDescConnectionXdslInfo = prometheus.NewDesc(
 		metricPrefix+"connection_xdsl_info",
 		"constant metric with value=0. Various information about the XDSL connection",
@@ -68,6 +66,7 @@ var (
 		metricPrefix+"connection_xdsl_attn_db",
 		"in Db",
 		[]string{"dir"}, nil) // up/down
+
 	promDescConnectionFtthInfo = prometheus.NewDesc(
 		metricPrefix+"connection_ftth_info",
 		"constant metric with value=0. Various information about the FTTH connection",
@@ -76,11 +75,29 @@ var (
 		metricPrefix+"connection_fttp_sfp_pwr_dbm",
 		"in Dbm",
 		[]string{"dir"}, nil) // rx/tx
+
+	promDescSwitchPortConnected = prometheus.NewDesc(
+		metricPrefix+"switch_port_connected",
+		"in bps",
+		nil, nil)
+	promDescSwitchPortBandwidth = prometheus.NewDesc(
+		metricPrefix+"switch_port_bandwidth",
+		"in bps",
+		[]string{"id", "link", "duplex"}, nil) // rx/tx
+	promDescSwitchPortBytes = prometheus.NewDesc(
+		metricPrefix+"switch_port_bytes",
+		"total rx/tx bytes",
+		[]string{"id", "dir", "state"}, nil) // rx/tx, good/bad
+	promDescSwitchHost = prometheus.NewDesc(
+		metricPrefix+"switch_host",
+		"constant metric with value=0. List of MAC addresses connected to the switch",
+		[]string{"id", "mac", "hostname"}, nil) // rx/tx
 )
 
 // Collector is the prometheus collector for the freebox exporter
 type Collector struct {
-	freebox *fbx.FreeboxConnection
+	listHosts bool
+	freebox   *fbx.FreeboxConnection
 }
 
 func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
@@ -100,7 +117,7 @@ func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
 func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 	log.Debug.Println("Collect")
 	wg := sync.WaitGroup{}
-	wg.Add(2)
+	wg.Add(3)
 
 	var firmwareVersion string
 	var mac string
@@ -110,6 +127,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 	go func() {
 		defer wg.Done()
 		log.Debug.Println("Collect system")
+
 		if m, err := c.freebox.GetMetricsSystem(); err == nil {
 			firmwareVersion = m.FirmwareVersion
 			mac = m.Mac
@@ -145,6 +163,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 	go func() {
 		defer wg.Done()
 		log.Debug.Println("Collect connection")
+
 		if m, err := c.freebox.GetMetricsConnection(); err == nil {
 			cnxType = m.Type
 			cnxState = m.State
@@ -152,8 +171,6 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 			cnxIPv4 = m.IPv4
 			cnxIPv6 = m.IPv6
 
-			c.collectGauge(ch, m.RateUp, promDescConnectionRate, "up")
-			c.collectGauge(ch, m.RateDown, promDescConnectionRate, "down")
 			c.collectGauge(ch, m.BandwidthUp, promDescConnectionBandwith, "up")
 			c.collectGauge(ch, m.BandwidthDown, promDescConnectionBandwith, "down")
 			c.collectCounter(ch, m.BytesUp, promDescConnectionBytes, "up")
@@ -189,10 +206,49 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 		}
 	}()
 
+	go func() {
+		defer wg.Done()
+		log.Debug.Println("Collect switch")
+
+		if m, err := c.freebox.GetMetricsSwitch(); err == nil {
+			numPortsConnected := 0
+
+			for _, port := range m.Ports {
+				if port.Link == "up" {
+					numPortsConnected++
+				}
+
+				speed, _ := strconv.Atoi(port.Speed)
+				portID := strconv.FormatInt(port.ID, 10)
+				ch <- prometheus.MustNewConstMetric(promDescSwitchPortBandwidth, prometheus.GaugeValue, float64(speed),
+					portID,
+					port.Link,
+					port.Duplex)
+				if port.Stats != nil {
+					c.collectCounter(ch, port.Stats.RxGoodBytes, promDescSwitchPortBytes, portID, "rx", "good")
+					c.collectCounter(ch, port.Stats.RxBadBytes, promDescSwitchPortBytes, portID, "rx", "bad")
+					c.collectCounter(ch, port.Stats.TxBytes, promDescSwitchPortBytes, portID, "tx", "")
+				}
+				if c.listHosts {
+					for _, mac := range port.MacList {
+						ch <- prometheus.MustNewConstMetric(promDescSwitchHost, prometheus.GaugeValue, 0,
+							portID,
+							strings.ToLower(mac.Mac),
+							mac.Hostname)
+					}
+				}
+			}
+
+			ch <- prometheus.MustNewConstMetric(promDescSwitchPortConnected, prometheus.GaugeValue, float64(numPortsConnected))
+		} else {
+			log.Error.Println(err)
+		}
+	}()
+
 	wg.Wait()
 	ch <- prometheus.MustNewConstMetric(promDescInfo, prometheus.GaugeValue, 0,
 		firmwareVersion,
-		mac,
+		strings.ToLower(mac),
 		serial,
 		boardName,
 		boxFlavor,
@@ -251,8 +307,10 @@ func (c *Collector) toString(b *bool) string {
 	return ""
 }
 
-func NewCollector(debug bool, filename string) *Collector {
-	result := &Collector{}
+func NewCollector(filename string, listHosts, debug bool) *Collector {
+	result := &Collector{
+		listHosts: listHosts,
+	}
 	newConfig := false
 	if r, err := os.Open(filename); err == nil {
 		log.Info.Println("Use configuration file", filename)
