@@ -88,19 +88,48 @@ var (
 		metricPrefix+"switch_port_bytes",
 		"total rx/tx bytes",
 		[]string{"id", "dir", "state"}, nil) // rx/tx, good/bad
+	promDescSwitchHosts = prometheus.NewDesc(
+		metricPrefix+"switch_hosts",
+		"number of hosts connected to the switch",
+		[]string{"id"}, nil)
 	promDescSwitchHost = prometheus.NewDesc(
 		metricPrefix+"switch_host",
 		"constant metric with value=1. List of MAC addresses connected to the switch",
-		[]string{"id", "mac", "hostname"}, nil) // rx/tx
+		[]string{"id", "mac", "hostname"}, nil)
+
+	promDescWifiApChannel = prometheus.NewDesc(
+		metricPrefix+"wifi_ap_channel",
+		"channel number",
+		[]string{"ap_id", "ap_band", "ap_name", "state", "channel_type"}, nil)
+	promDescWifiApStations = prometheus.NewDesc(
+		metricPrefix+"wifi_stations",
+		"number of stations connected to the AP",
+		[]string{"ap_id", "ap_band", "ap_name"}, nil)
+	promDescWifiApStation = prometheus.NewDesc(
+		metricPrefix+"wifi_station",
+		"1 if active, 0 if not",
+		[]string{"ap_id", "ap_band", "ap_name", "id", "bssid", "ssid", "encryption", "hostname", "mac"}, nil)
+	promDescWifiApStationBytes = prometheus.NewDesc(
+		metricPrefix+"wifi_station_bytes",
+		"total rx/tx bytes",
+		[]string{"bssid", "mac", "dir"}, nil)
+	promDescWifiApStationSignal = prometheus.NewDesc(
+		metricPrefix+"wifi_station_signal",
+		"signal attenuation in dB",
+		[]string{"bssid", "mac"}, nil)
 
 	promDescLanHosts = prometheus.NewDesc(
 		metricPrefix+"lan_hosts",
 		"number of hosts detected",
 		[]string{"interface", "active"}, nil)
-	promDescLanHostActive = prometheus.NewDesc(
-		metricPrefix+"lan_host_active",
-		"1 if active, 0 if not. Various information about the l2/l3 addresses",
-		[]string{"interface", "vendor_name", "primary_name", "l2_type", "l2_id", "l3_type", "l3_address"}, nil)
+	promDescLanHostActiveL2 = prometheus.NewDesc(
+		metricPrefix+"lan_host_active_l2",
+		"1 if active, 0 if not. Various information about the l2 addresses",
+		[]string{"interface", "vendor_name", "primary_name", "host_type", "l2_type", "l2_id"}, nil)
+	promDescLanHostActiveL3 = prometheus.NewDesc(
+		metricPrefix+"lan_host_active_l3",
+		"1 if active, 0 if not. Various information about the l3 addresses",
+		[]string{"interface", "vendor_name", "primary_name", "host_type", "l2_type", "l2_id", "l3_type", "l3_address"}, nil)
 )
 
 // Collector is the prometheus collector for the freebox exporter
@@ -126,7 +155,7 @@ func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
 func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 	log.Debug.Println("Collect")
 	wg := sync.WaitGroup{}
-	wg.Add(4)
+	wg.Add(5)
 
 	var firmwareVersion string
 	var mac string
@@ -238,6 +267,8 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 					c.collectCounter(ch, port.Stats.RxBadBytes, promDescSwitchPortBytes, portID, "rx", "bad")
 					c.collectCounter(ch, port.Stats.TxBytes, promDescSwitchPortBytes, portID, "tx", "")
 				}
+
+				ch <- prometheus.MustNewConstMetric(promDescSwitchHosts, prometheus.GaugeValue, float64(len(port.MacList)), portID)
 				if c.hostDetails {
 					for _, mac := range port.MacList {
 						ch <- prometheus.MustNewConstMetric(promDescSwitchHost, prometheus.GaugeValue, 1,
@@ -252,6 +283,90 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 		} else {
 			log.Error.Println(err)
 		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		log.Debug.Println("Collect wifi")
+		if m, err := c.freebox.GetMetricsWifi(); err == nil {
+			for _, ap := range m.Ap {
+				apID := strconv.FormatInt(ap.ID, 10)
+
+				if capabilities, ok := ap.Capabilities[ap.Config.Band]; ok {
+					labels := prometheus.Labels{}
+					labels["band"] = ap.Config.Band
+
+					for k, v := range capabilities {
+						labels[k] = strconv.FormatBool(v)
+					}
+
+					promDescWifiApCapabilities := prometheus.NewDesc(
+						metricPrefix+"wifi_ap_capabilities",
+						"constant metric with value=1. List of AP capabilities",
+						nil, labels)
+					ch <- prometheus.MustNewConstMetric(promDescWifiApCapabilities, prometheus.GaugeValue, 1)
+
+				}
+
+				c.collectGauge(ch, ap.Status.PrimaryChannel, promDescWifiApChannel,
+					apID,
+					ap.Config.Band,
+					ap.Name,
+					ap.Status.State,
+					"primary")
+				c.collectGauge(ch, ap.Status.SecondaryChannel, promDescWifiApChannel,
+					apID,
+					ap.Config.Band,
+					ap.Name,
+					ap.Status.State,
+					"secondary")
+				ch <- prometheus.MustNewConstMetric(promDescWifiApStations, prometheus.GaugeValue, float64(len(ap.Stations)),
+					apID,
+					ap.Config.Band,
+					ap.Name)
+				if c.hostDetails {
+					for _, station := range ap.Stations {
+						stationActive := float64(0)
+						if station.Host != nil && c.toBool(station.Host.Active) {
+							stationActive = 1
+						}
+						ssid := ""
+						encryption := ""
+						if station.Bss != nil {
+							ssid = station.Bss.Config.Ssid
+							encryption = station.Bss.Config.Encryption
+						}
+
+						ch <- prometheus.MustNewConstMetric(promDescWifiApStation, prometheus.GaugeValue, stationActive,
+							apID,
+							ap.Config.Band,
+							ap.Name,
+							station.ID,
+							station.Bssid,
+							ssid,
+							encryption,
+							station.Hostname,
+							strings.ToLower(station.Mac))
+						c.collectCounter(ch, station.RxBytes, promDescWifiApStationBytes,
+							station.Bssid,
+							station.Mac,
+							"rx",
+						)
+						c.collectCounter(ch, station.TxBytes, promDescWifiApStationBytes,
+							station.Bssid,
+							station.Mac,
+							"tx",
+						)
+						c.collectGauge(ch, station.Signal, promDescWifiApStationSignal,
+							station.Bssid,
+							station.Mac)
+					}
+				}
+			}
+		} else {
+			log.Error.Println(err)
+		}
+
 	}()
 
 	go func() {
@@ -274,15 +389,28 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 						}
 
 						if c.hostDetails {
+							l2Active := float64(0)
+							if active {
+								l2Active = 1
+							}
+							ch <- prometheus.MustNewConstMetric(promDescLanHostActiveL2, prometheus.GaugeValue, l2Active,
+								name,
+								host.VendorName,
+								host.PrimaryName,
+								host.HostType,
+								host.L2Ident.Type,
+								strings.ToLower(host.L2Ident.ID))
+
 							for _, l3 := range host.L3Connectivities {
-								active := float64(0)
+								l3Active := float64(0)
 								if c.toBool(l3.Active) {
-									active = 1
+									l3Active = 1
 								}
-								ch <- prometheus.MustNewConstMetric(promDescLanHostActive, prometheus.GaugeValue, active,
+								ch <- prometheus.MustNewConstMetric(promDescLanHostActiveL3, prometheus.GaugeValue, l3Active,
 									name,
 									host.VendorName,
 									host.PrimaryName,
+									host.HostType,
 									host.L2Ident.Type,
 									strings.ToLower(host.L2Ident.ID),
 									l3.Af,

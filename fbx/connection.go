@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-
-	"github.com/trazfr/freebox-exporter/log"
 )
 
 type config struct {
@@ -86,7 +84,6 @@ func (f *FreeboxConnection) getInternal(path string, out interface{}, retry bool
 	if err != nil {
 		return err
 	}
-	log.Debug.Println("GET", url, "retry:", retry)
 
 	if err := f.client.Get(url, out, f.session.AddHeader); err != nil {
 		if retry {

@@ -35,7 +35,7 @@ func jsonDebugDecoder(reader io.Reader, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	log.Debug.Println("JSON data:", string(data))
+	log.Debug.Println("HTTP result:", string(data))
 	return jsonDecoder(bytes.NewBuffer(data), out)
 }
 
@@ -91,6 +91,8 @@ func (f *FreeboxHttpClient) Post(url string, in interface{}, out interface{}, ca
 }
 
 func (f *FreeboxHttpClient) do(req *http.Request, out interface{}) error {
+	log.Debug.Println("HTTP request:", req.Method, req.URL.Path)
+
 	res, err := f.client.Do(req)
 	if err != nil {
 		return err

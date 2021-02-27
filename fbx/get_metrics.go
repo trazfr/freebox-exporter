@@ -162,6 +162,94 @@ type MetricsFreeboxSwitchPortStats struct {
 	TxUnicastPackets   *int64 `json:"tx_unicast_packets"`
 }
 
+// MetricsFreeboxWifi https://dev.freebox.fr/sdk/os/wifi/
+type MetricsFreeboxWifi struct {
+	Ap []*MetricsFreeboxWifiAp
+}
+
+// MetricsFreeboxWifiAp https://dev.freebox.fr/sdk/os/wifi/#WifiAp
+type MetricsFreeboxWifiAp struct {
+	ID     int64  `json:"id"`
+	Name   string `json:"name"`
+	Status struct {
+		State               string `json:"state"`
+		ChannelWidth        string `json:"channel_width"`
+		PrimaryChannel      *int64 `json:"primary_channel"`
+		SecondaryChannel    *int64 `json:"secondary_channel"`
+		DfsCacRemainingTime *int64 `json:"dfs_cac_remaining_time"`
+	} `json:"status"`
+	Capabilities map[string]map[string]bool `json:"capabilities"`
+	Config       struct {
+		Band             string `json:"band"`
+		ChannelWidth     string `json:"channel_width"`
+		PrimaryChannel   *int64 `json:"primary_channel"`
+		SecondaryChannel *int64 `json:"secondary_channel"`
+		DfsEnabled       *bool  `json:"dfs_enabled"`
+		Ht               struct {
+			HtEnabled *bool `json:"ht_enabled"`
+			AcEnabled *bool `json:"ac_enabled"`
+		} `json:"ht"`
+	} `json:"config"`
+
+	Stations []*MetricsFreeboxWifiStation `json:"-"`
+}
+
+// MetricsFreeboxWifiStation https://dev.freebox.fr/sdk/os/wifi/#WifiStation
+type MetricsFreeboxWifiStation struct {
+	ID               string                 `json:"id"`
+	Mac              string                 `json:"mac"`
+	Bssid            string                 `json:"bssid"`
+	Hostname         string                 `json:"hostname"`
+	Host             *MetricsFreeboxLanHost `json:"host"`
+	State            string                 `json:"state"`
+	InactiveDuration *int64                 `json:"inactive"`
+	ConnDuration     *int64                 `json:"conn_duration"`
+	RxBytes          *int64                 `json:"rx_bytes"`
+	TxBytes          *int64                 `json:"tx_bytes"`
+	RxRate           *int64                 `json:"rx_rate"`
+	TxRate           *int64                 `json:"tx_rate"`
+	Signal           *int64                 `json:"signal"`
+	Flags            struct {
+		Legacy     *bool `json:"legacy"`
+		Ht         *bool `json:"ht"`
+		Vht        *bool `json:"vht"`
+		Authorized *bool `json:"authorized"`
+	} `json:"flags"`
+	LastRx *MetricsFreeboxWifiStationStats `json:"last_rx"`
+	LastTx *MetricsFreeboxWifiStationStats `json:"last_tx"`
+
+	Bss *MetricsFreeboxWifiBss `json:"-"`
+}
+
+type MetricsFreeboxWifiBss struct {
+	ID     string `json:"id"`
+	PhyID  int64  `json:"phy_id"`
+	Status struct {
+		State              string `json:"state"`
+		StaCount           *int64 `json:"sta_count"`
+		AuthorizedStaCount *int64 `json:"authorized_sta_count"`
+		IsMainBss          *bool  `json:"is_main_bss"`
+	} `json:"struct"`
+	Config struct {
+		Enabled          *bool  `json:"enabled"`
+		UseDefaultConfig *bool  `json:"use_default_config"`
+		Ssid             string `json:"ssid"`
+		HideSsid         *bool  `json:"hide_ssid"`
+		Encryption       string `json:"encryption"`
+		Key              string `json:"key"`
+		EapolVersion     *int64 `json:"eapol_version"`
+	} `json:"config"`
+}
+
+// MetricsFreeboxWifiStationStats https://dev.freebox.fr/sdk/os/wifi/#WifiStationStats
+type MetricsFreeboxWifiStationStats struct {
+	BitRate *int64 `json:"bitrate"`
+	Mcs     *int64 `json:"mcs"`
+	VhtMcs  *int64 `json:"vht_mcs"`
+	Width   string `json:"width"`
+	Shortgi *bool  `json:"shortgi"`
+}
+
 // MetricsFreeboxLan https://dev.freebox.fr/sdk/os/lan/
 type MetricsFreeboxLan struct {
 	Hosts map[string][]*MetricsFreeboxLanHost
@@ -254,9 +342,9 @@ func (f *FreeboxConnection) GetMetricsSwitch() (*MetricsFreeboxSwitch, error) {
 			defer wg.Done()
 			stats := new(MetricsFreeboxSwitchPortStats)
 			// http://mafreebox.freebox.fr/api/v5/switch/port/1/stats
-			err := f.get(fmt.Sprintf("switch/port/%d/stats", port.ID), stats)
+			err := f.get(fmt.Sprintf("switch/port/%d/stats/", port.ID), stats)
 			if err != nil {
-				log.Warning.Println("Could not get status of port", port.ID)
+				log.Warning.Println("Could not get status of port", port.ID, err)
 				return
 			}
 			port.Stats = stats
@@ -267,9 +355,66 @@ func (f *FreeboxConnection) GetMetricsSwitch() (*MetricsFreeboxSwitch, error) {
 	return res, err
 }
 
+// GetMetricsWifi https://dev.freebox.fr/sdk/os/wifi/
+func (f *FreeboxConnection) GetMetricsWifi() (*MetricsFreeboxWifi, error) {
+	res := new(MetricsFreeboxWifi)
+	bssMap := map[string]*MetricsFreeboxWifiBss{}
+
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+
+		bss := []*MetricsFreeboxWifiBss{}
+		if err := f.get("wifi/bss/", &bss); err != nil {
+			log.Warning.Println("Could not get the BSS", err)
+		}
+		for _, b := range bss {
+			bssMap[b.ID] = b
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		if err := f.get("wifi/ap/", &res.Ap); err != nil {
+			log.Warning.Println("Could not get the AP", err)
+			return
+		}
+
+		wgAp := sync.WaitGroup{}
+		wgAp.Add(len(res.Ap))
+
+		for _, ap := range res.Ap {
+			go func(ap *MetricsFreeboxWifiAp) {
+				defer wgAp.Done()
+				err := f.get(fmt.Sprintf("wifi/ap/%d/stations/", ap.ID), &ap.Stations)
+				if err != nil {
+					log.Warning.Println("Could not get stations of AP", ap.ID, err)
+				}
+			}(ap)
+		}
+
+		wgAp.Wait()
+	}()
+
+	wg.Wait()
+
+	for _, ap := range res.Ap {
+		for _, station := range ap.Stations {
+			if b, found := bssMap[station.Bssid]; found {
+				station.Bss = b
+			}
+		}
+	}
+
+	return res, nil
+}
+
 // GetMetricsLan https://dev.freebox.fr/sdk/os/lan/
 func (f *FreeboxConnection) GetMetricsLan() (*MetricsFreeboxLan, error) {
-	var interfaces []*freeboxLanInterfaces
+	interfaces := []*freeboxLanInterfaces{}
 	if err := f.get("lan/browser/interfaces/", &interfaces); err != nil {
 		return nil, err
 	}

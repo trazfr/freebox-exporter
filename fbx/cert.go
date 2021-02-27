@@ -6,8 +6,8 @@ import (
 )
 
 const (
-	//
-	FreeboxRootCA = `
+	// https://dev.freebox.fr/sdk/os/#https-access
+	freeboxRootCA = `
 -----BEGIN CERTIFICATE-----
 MIIFmjCCA4KgAwIBAgIJAKLyz15lYOrYMA0GCSqGSIb3DQEBCwUAMFoxCzAJBgNV
 BAYTAkZSMQ8wDQYDVQQIDAZGcmFuY2UxDjAMBgNVBAcMBVBhcmlzMRAwDgYDVQQK
@@ -45,7 +45,7 @@ S27oDfFq04XSox7JM9HdTt2hLK96x1T7FpFrBTnALzb7vHv9MhXqAT90fPR/8A==
 
 func newTLSConfig() *tls.Config {
 	caCertPool := x509.NewCertPool()
-	if caCertPool.AppendCertsFromPEM([]byte(FreeboxRootCA)) == false {
+	if caCertPool.AppendCertsFromPEM([]byte(freeboxRootCA)) == false {
 		panic("Could not add the certificate")
 	}
 
