@@ -43,10 +43,9 @@ func NewFreeboxHttpClient(debug bool) *FreeboxHttpClient {
 	result := &FreeboxHttpClient{
 		client: http.Client{
 			Transport: &http.Transport{
-				TLSClientConfig:    newTLSConfig(),
-				MaxIdleConns:       10,
-				IdleConnTimeout:    30 * time.Second,
-				DisableCompression: true,
+				TLSClientConfig:     newTLSConfig(),
+				MaxIdleConnsPerHost: 10,
+				IdleConnTimeout:     10 * time.Minute,
 			},
 			Timeout: 10 * time.Second,
 		},

@@ -120,7 +120,7 @@ type MetricsFreeboxSwitchStatus struct {
 	Link    string `json:"link"`
 	Mode    string `json:"mode"`
 	Speed   string `json:"speed"`
-	MacList []struct {
+	MacList []*struct {
 		Mac      string `json:"mac"`
 		Hostname string `json:"hostname"`
 	} `json:"mac_list"`
@@ -160,6 +160,46 @@ type MetricsFreeboxSwitchPortStats struct {
 	TxPause            *int64 `json:"tx_pause"`
 	TxSingle           *int64 `json:"tx_single"`
 	TxUnicastPackets   *int64 `json:"tx_unicast_packets"`
+}
+
+// MetricsFreeboxLan https://dev.freebox.fr/sdk/os/lan/
+type MetricsFreeboxLan struct {
+	Hosts map[string][]*MetricsFreeboxLanHost
+}
+
+type freeboxLanInterfaces struct {
+	Name      string `json:"name"`
+	HostCount *int64 `json:"host_count"`
+}
+
+// MetricsFreeboxLanHost https://dev.freebox.fr/sdk/os/lan/#LanHost
+type MetricsFreeboxLanHost struct {
+	ID                string `json:"id"`
+	PrimaryName       string `json:"primary_name"`
+	HostType          string `json:"host_type"`
+	PrimaryNameManual *bool  `json:"primary_name_manual"`
+	L2Ident           *struct {
+		ID   string `json:"id"`
+		Type string `json:"type"`
+	} `json:"l2ident"`
+	VendorName        string `json:"vendor_name"`
+	Persistent        *bool  `json:"persistent"`
+	Reachable         *bool  `json:"reachable"`
+	LastTimeReachable *int64 `json:"last_time_reachable"`
+	Active            *bool  `json:"active"`
+	LastActivity      *int64 `json:"last_activity"`
+	Names             []*struct {
+		Name   string `json:"name"`
+		Source string `json:"source"`
+	} `json:"names"`
+	L3Connectivities []*struct {
+		Addr              string `json:"addr"`
+		Af                string `json:"af"`
+		Active            *bool  `json:"active"`
+		Reachable         *bool  `json:"reachable"`
+		LastActivity      *int64 `json:"last_activity"`
+		LastTimeReachable *int64 `json:"last_time_reachable"`
+	} `json:"l3connectivities"`
 }
 
 // GetMetricsSystem http://mafreebox.freebox.fr/api/v5/system/
@@ -225,4 +265,44 @@ func (f *FreeboxConnection) GetMetricsSwitch() (*MetricsFreeboxSwitch, error) {
 
 	wg.Wait()
 	return res, err
+}
+
+// GetMetricsLan https://dev.freebox.fr/sdk/os/lan/
+func (f *FreeboxConnection) GetMetricsLan() (*MetricsFreeboxLan, error) {
+	var interfaces []*freeboxLanInterfaces
+	if err := f.get("lan/browser/interfaces/", &interfaces); err != nil {
+		return nil, err
+	}
+
+	type chanResult struct {
+		name  string
+		hosts []*MetricsFreeboxLanHost
+		err   error
+	}
+	details := make(chan *chanResult)
+	defer close(details)
+
+	for _, intf := range interfaces {
+		go func(name string) {
+			res := &chanResult{
+				name: name,
+			}
+			res.err = f.get(fmt.Sprintf("lan/browser/%s/", name), &res.hosts)
+			details <- res
+		}(intf.Name)
+	}
+
+	res := &MetricsFreeboxLan{
+		Hosts: make(map[string][]*MetricsFreeboxLanHost),
+	}
+	for range interfaces {
+		result := <-details
+		if result.err != nil {
+			log.Warning.Println("Could not get the hosts on interface", result.name, result.err)
+		} else {
+			res.Hosts[result.name] = result.hosts
+		}
+	}
+
+	return res, nil
 }

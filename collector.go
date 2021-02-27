@@ -18,7 +18,7 @@ const (
 var (
 	promDescInfo = prometheus.NewDesc(
 		metricPrefix+"info",
-		"constant metric with value=0. Various information about the Freebox",
+		"constant metric with value=1. Various information about the Freebox",
 		[]string{"firmware", "mac", "serial", "boardname", "box_flavor", "connection_type", "connection_state", "connection_media", "ipv4", "ipv6"}, nil)
 
 	promDescSystemUptime = prometheus.NewDesc(
@@ -44,7 +44,7 @@ var (
 
 	promDescConnectionXdslInfo = prometheus.NewDesc(
 		metricPrefix+"connection_xdsl_info",
-		"constant metric with value=0. Various information about the XDSL connection",
+		"constant metric with value=1. Various information about the XDSL connection",
 		[]string{"status", "protocol", "modulation"}, nil)
 	promDescConnectionXdslUptime = prometheus.NewDesc(
 		metricPrefix+"connection_xdsl_uptime",
@@ -69,7 +69,7 @@ var (
 
 	promDescConnectionFtthInfo = prometheus.NewDesc(
 		metricPrefix+"connection_ftth_info",
-		"constant metric with value=0. Various information about the FTTH connection",
+		"constant metric with value=1. Various information about the FTTH connection",
 		[]string{"sfp_present", "sfp_alim_ok", "sfp_has_power_report", "sfp_has_signal", "link", "sfp_serial", "sfp_model", "sfp_vendor"}, nil)
 	promDescConnectionFtthSfpPwr = prometheus.NewDesc(
 		metricPrefix+"connection_fttp_sfp_pwr_dbm",
@@ -78,7 +78,7 @@ var (
 
 	promDescSwitchPortConnected = prometheus.NewDesc(
 		metricPrefix+"switch_port_connected",
-		"in bps",
+		"number of ports connnected",
 		nil, nil)
 	promDescSwitchPortBandwidth = prometheus.NewDesc(
 		metricPrefix+"switch_port_bandwidth",
@@ -90,14 +90,23 @@ var (
 		[]string{"id", "dir", "state"}, nil) // rx/tx, good/bad
 	promDescSwitchHost = prometheus.NewDesc(
 		metricPrefix+"switch_host",
-		"constant metric with value=0. List of MAC addresses connected to the switch",
+		"constant metric with value=1. List of MAC addresses connected to the switch",
 		[]string{"id", "mac", "hostname"}, nil) // rx/tx
+
+	promDescLanHosts = prometheus.NewDesc(
+		metricPrefix+"lan_hosts",
+		"number of hosts detected",
+		[]string{"interface", "active"}, nil)
+	promDescLanHostActive = prometheus.NewDesc(
+		metricPrefix+"lan_host_active",
+		"1 if active, 0 if not. Various information about the l2/l3 addresses",
+		[]string{"interface", "vendor_name", "primary_name", "l2_type", "l2_id", "l3_type", "l3_address"}, nil)
 )
 
 // Collector is the prometheus collector for the freebox exporter
 type Collector struct {
-	listHosts bool
-	freebox   *fbx.FreeboxConnection
+	hostDetails bool
+	freebox     *fbx.FreeboxConnection
 }
 
 func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
@@ -117,7 +126,7 @@ func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
 func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 	log.Debug.Println("Collect")
 	wg := sync.WaitGroup{}
-	wg.Add(3)
+	wg.Add(4)
 
 	var firmwareVersion string
 	var mac string
@@ -177,7 +186,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 			c.collectCounter(ch, m.BytesDown, promDescConnectionBytes, "down")
 			if m.Xdsl != nil {
 				if m.Xdsl.Status != nil {
-					ch <- prometheus.MustNewConstMetric(promDescConnectionXdslInfo, prometheus.GaugeValue, 0,
+					ch <- prometheus.MustNewConstMetric(promDescConnectionXdslInfo, prometheus.GaugeValue, 1,
 						m.Xdsl.Status.Status,
 						m.Xdsl.Status.Protocol,
 						m.Xdsl.Status.Modulation)
@@ -188,7 +197,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 				c.collectXdslStats(ch, m.Xdsl.Down, "down")
 			}
 			if m.Ftth != nil {
-				ch <- prometheus.MustNewConstMetric(promDescConnectionFtthInfo, prometheus.GaugeValue, 0,
+				ch <- prometheus.MustNewConstMetric(promDescConnectionFtthInfo, prometheus.GaugeValue, 1,
 					c.toString(m.Ftth.SfpPresent),
 					c.toString(m.Ftth.SfpAlimOk),
 					c.toString(m.Ftth.SfpHasPowerReport),
@@ -229,9 +238,9 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 					c.collectCounter(ch, port.Stats.RxBadBytes, promDescSwitchPortBytes, portID, "rx", "bad")
 					c.collectCounter(ch, port.Stats.TxBytes, promDescSwitchPortBytes, portID, "tx", "")
 				}
-				if c.listHosts {
+				if c.hostDetails {
 					for _, mac := range port.MacList {
-						ch <- prometheus.MustNewConstMetric(promDescSwitchHost, prometheus.GaugeValue, 0,
+						ch <- prometheus.MustNewConstMetric(promDescSwitchHost, prometheus.GaugeValue, 1,
 							portID,
 							strings.ToLower(mac.Mac),
 							mac.Hostname)
@@ -245,8 +254,60 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 		}
 	}()
 
+	go func() {
+		defer wg.Done()
+		log.Debug.Println("Collect lan")
+
+		if m, err := c.freebox.GetMetricsLan(); err == nil {
+			for name, hosts := range m.Hosts {
+				hostsUnknown := 0
+				hostsActive := 0
+				hostsInactive := 0
+
+				for _, host := range hosts {
+					if host != nil {
+						active := c.toBool(host.Active)
+						if active {
+							hostsActive++
+						} else {
+							hostsInactive++
+						}
+
+						if c.hostDetails {
+							for _, l3 := range host.L3Connectivities {
+								active := float64(0)
+								if c.toBool(l3.Active) {
+									active = 1
+								}
+								ch <- prometheus.MustNewConstMetric(promDescLanHostActive, prometheus.GaugeValue, active,
+									name,
+									host.VendorName,
+									host.PrimaryName,
+									host.L2Ident.Type,
+									strings.ToLower(host.L2Ident.ID),
+									l3.Af,
+									l3.Addr)
+							}
+						}
+					} else {
+						hostsUnknown += len(hosts)
+					}
+				}
+
+				ch <- prometheus.MustNewConstMetric(promDescLanHosts, prometheus.GaugeValue, float64(hostsActive), name, "true")
+				ch <- prometheus.MustNewConstMetric(promDescLanHosts, prometheus.GaugeValue, float64(hostsInactive), name, "false")
+				if hostsUnknown > 0 {
+					// there should not be any
+					ch <- prometheus.MustNewConstMetric(promDescLanHosts, prometheus.GaugeValue, float64(hostsUnknown), name, "unknown")
+				}
+			}
+		} else {
+			log.Error.Println(err)
+		}
+	}()
+
 	wg.Wait()
-	ch <- prometheus.MustNewConstMetric(promDescInfo, prometheus.GaugeValue, 0,
+	ch <- prometheus.MustNewConstMetric(promDescInfo, prometheus.GaugeValue, 1,
 		firmwareVersion,
 		strings.ToLower(mac),
 		serial,
@@ -304,12 +365,16 @@ func (c *Collector) toString(b *bool) string {
 	if b != nil {
 		return strconv.FormatBool(*b)
 	}
-	return ""
+	return "unknown"
 }
 
-func NewCollector(filename string, listHosts, debug bool) *Collector {
+func (c *Collector) toBool(b *bool) bool {
+	return b != nil && *b
+}
+
+func NewCollector(filename string, hostDetails, debug bool) *Collector {
 	result := &Collector{
-		listHosts: listHosts,
+		hostDetails: hostDetails,
 	}
 	newConfig := false
 	if r, err := os.Open(filename); err == nil {
