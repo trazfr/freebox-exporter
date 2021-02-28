@@ -330,8 +330,8 @@ func (f *FreeboxConnection) GetMetricsConnection() (*MetricsFreeboxConnectionAll
 // GetMetricsSwitch http://mafreebox.freebox.fr/api/v5/switch/status/
 func (f *FreeboxConnection) GetMetricsSwitch() (*MetricsFreeboxSwitch, error) {
 	res := new(MetricsFreeboxSwitch)
-	err := f.get("switch/status/", &res.Ports)
-	if err != nil {
+
+	if err := f.get("switch/status/", &res.Ports); err != nil {
 		return nil, err
 	}
 
@@ -342,10 +342,10 @@ func (f *FreeboxConnection) GetMetricsSwitch() (*MetricsFreeboxSwitch, error) {
 		go func(port *MetricsFreeboxSwitchStatus) {
 			defer wg.Done()
 			stats := new(MetricsFreeboxSwitchPortStats)
+
 			// http://mafreebox.freebox.fr/api/v5/switch/port/1/stats
-			err := f.get(fmt.Sprintf("switch/port/%d/stats/", port.ID), stats)
-			if err != nil {
-				log.Warning.Println("Could not get status of port", port.ID, err)
+			if err := f.get(fmt.Sprintf("switch/port/%d/stats/", port.ID), stats); err != nil {
+				log.Error.Println("Could not get status of port", port.ID, err)
 				return
 			}
 			port.Stats = stats
@@ -353,7 +353,7 @@ func (f *FreeboxConnection) GetMetricsSwitch() (*MetricsFreeboxSwitch, error) {
 	}
 
 	wg.Wait()
-	return res, err
+	return res, nil
 }
 
 // GetMetricsWifi https://dev.freebox.fr/sdk/os/wifi/
@@ -367,7 +367,7 @@ func (f *FreeboxConnection) GetMetricsWifi() (*MetricsFreeboxWifi, error) {
 		defer wg.Done()
 
 		if err := f.get("wifi/bss/", &res.Bss); err != nil {
-			log.Warning.Println("Could not get the BSS", err)
+			log.Error.Println("Could not get the BSS", err)
 		}
 	}()
 
@@ -375,7 +375,7 @@ func (f *FreeboxConnection) GetMetricsWifi() (*MetricsFreeboxWifi, error) {
 		defer wg.Done()
 
 		if err := f.get("wifi/ap/", &res.Ap); err != nil {
-			log.Warning.Println("Could not get the AP", err)
+			log.Error.Println("Could not get the AP", err)
 			return
 		}
 
@@ -385,9 +385,9 @@ func (f *FreeboxConnection) GetMetricsWifi() (*MetricsFreeboxWifi, error) {
 		for _, ap := range res.Ap {
 			go func(ap *MetricsFreeboxWifiAp) {
 				defer wgAp.Done()
-				err := f.get(fmt.Sprintf("wifi/ap/%d/stations/", ap.ID), &ap.Stations)
-				if err != nil {
-					log.Warning.Println("Could not get stations of AP", ap.ID, err)
+
+				if err := f.get(fmt.Sprintf("wifi/ap/%d/stations/", ap.ID), &ap.Stations); err != nil {
+					log.Error.Println("Could not get stations of AP", ap.ID, err)
 				}
 			}(ap)
 		}
@@ -444,7 +444,7 @@ func (f *FreeboxConnection) GetMetricsLan() (*MetricsFreeboxLan, error) {
 	for range interfaces {
 		result := <-details
 		if result.err != nil {
-			log.Warning.Println("Could not get the hosts on interface", result.name, result.err)
+			log.Error.Println("Could not get the hosts on interface", result.name, result.err)
 		} else {
 			res.Hosts[result.name] = result.hosts
 		}

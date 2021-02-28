@@ -34,6 +34,12 @@ func InitDebug() {
 func Init() {
 	Debug = log.New(ioutil.Discard, "", 0)
 	Info = log.New(os.Stdout, "", 0)
-	Warning = log.New(os.Stdout, "", 0)
-	Error = log.New(os.Stderr, "", 0)
+
+	Warning = log.New(os.Stdout,
+		"WARNING: ",
+		log.Ldate|log.Ltime|log.Lshortfile)
+
+	Error = log.New(os.Stderr,
+		"ERROR: ",
+		log.Ldate|log.Ltime|log.Lshortfile)
 }

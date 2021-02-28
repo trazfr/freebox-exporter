@@ -6,10 +6,16 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/trazfr/freebox-exporter/log"
 )
+
+type sessionInfo struct {
+	sessionToken string
+	challenge    string
+}
 
 // FreeboxSession represents all the variables used in a session
 type FreeboxSession struct {
@@ -17,9 +23,12 @@ type FreeboxSession struct {
 	getSessionTokenURL string
 	getChallengeURL    string
 
-	appToken     string
-	sessionToken string
-	challenge    string
+	appToken string
+
+	sessionTokenLastUpdate time.Time
+	sessionTokenLock       sync.Mutex
+	sessionInfo            *sessionInfo
+	oldSessionInfo         *sessionInfo // avoid deleting the sessionInfo too quickly
 }
 
 func GetAppToken(client *FreeboxHttpClient, apiVersion *FreeboxAPIVersion) (string, error) {
@@ -53,7 +62,7 @@ func GetAppToken(client *FreeboxHttpClient, apiVersion *FreeboxAPIVersion) (stri
 
 		switch status.Status {
 		case "pending":
-			log.Warning.Println(counter, "Please accept the login on the Freebox Server")
+			log.Info.Println(counter, "Please accept the login on the Freebox Server")
 			time.Sleep(10 * time.Second)
 		case "granted":
 			return postResponse.AppToken, nil
@@ -88,16 +97,24 @@ func NewFreeboxSession(appToken string, client *FreeboxHttpClient, apiVersion *F
 }
 
 func (f *FreeboxSession) IsValid() bool {
-	return f.sessionToken != "" && f.challenge != ""
+	return f.sessionInfo != nil
 }
 
 func (f *FreeboxSession) AddHeader(req *http.Request) {
-	if f != nil && f.sessionToken != "" {
-		req.Header.Set("X-Fbx-App-Auth", f.sessionToken)
+	if f != nil && f.sessionInfo != nil {
+		req.Header.Set("X-Fbx-App-Auth", f.sessionInfo.sessionToken)
 	}
 }
 
 func (f *FreeboxSession) Refresh() error {
+	f.sessionTokenLock.Lock()
+	defer f.sessionTokenLock.Unlock()
+
+	if sinceLastUpdate := time.Now().Sub(f.sessionTokenLastUpdate); sinceLastUpdate < 5*time.Second {
+		log.Debug.Printf("Updated %v ago. Skipping", sinceLastUpdate)
+		return nil
+	}
+
 	challenge, err := f.getChallenge()
 	if err != nil {
 		return err
@@ -106,8 +123,12 @@ func (f *FreeboxSession) Refresh() error {
 	if err != nil {
 		return err
 	}
-	f.challenge = challenge
-	f.sessionToken = sessionToken
+	f.sessionTokenLastUpdate = time.Now()
+	f.oldSessionInfo = f.sessionInfo
+	f.sessionInfo = &sessionInfo{
+		challenge:    challenge,
+		sessionToken: sessionToken,
+	}
 	return nil
 }
 
