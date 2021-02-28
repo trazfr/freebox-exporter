@@ -67,14 +67,30 @@ var (
 		"in Db",
 		[]string{"dir"}, nil) // up/down
 
-	promDescConnectionFtthInfo = prometheus.NewDesc(
-		metricPrefix+"connection_ftth_info",
-		"constant metric with value=1. Various information about the FTTH connection",
-		[]string{"sfp_present", "sfp_alim_ok", "sfp_has_power_report", "sfp_has_signal", "link", "sfp_serial", "sfp_model", "sfp_vendor"}, nil)
+	promDescConnectionFtthSfpPresent = prometheus.NewDesc(
+		metricPrefix+"connection_ftth_sfp_present",
+		"value=1 if the SFP is present",
+		[]string{"sfp_serial", "sfp_model", "sfp_vendor"}, nil)
+	promDescConnectionFtthSfpAlimOk = prometheus.NewDesc(
+		metricPrefix+"connection_ftth_sfp_alim_ok",
+		"value=1 if the SFP's alimentation is OK",
+		[]string{"sfp_serial", "sfp_model", "sfp_vendor"}, nil)
+	promDescConnectionFtthSfpHasPowerReport = prometheus.NewDesc(
+		metricPrefix+"connection_ftth_sfp_has_power_report",
+		"value=1 if the SFP has a power report ("+metricPrefix+"connection_fttp_sfp_pwr_dbm)",
+		[]string{"sfp_serial", "sfp_model", "sfp_vendor"}, nil)
+	promDescConnectionFtthSfpHasSignal = prometheus.NewDesc(
+		metricPrefix+"connection_ftth_sfp_has_signal",
+		"value=1 if the SFP has a signal",
+		[]string{"sfp_serial", "sfp_model", "sfp_vendor"}, nil)
+	promDescConnectionFtthLink = prometheus.NewDesc(
+		metricPrefix+"connection_ftth_link",
+		"value=1 if the link is OK",
+		[]string{"sfp_serial", "sfp_model", "sfp_vendor"}, nil)
 	promDescConnectionFtthSfpPwr = prometheus.NewDesc(
 		metricPrefix+"connection_fttp_sfp_pwr_dbm",
-		"in Dbm",
-		[]string{"dir"}, nil) // rx/tx
+		"SFP power report in Dbm",
+		[]string{"sfp_serial", "sfp_model", "sfp_vendor", "dir"}, nil) // rx/tx
 
 	promDescSwitchPortConnectedTotal = prometheus.NewDesc(
 		metricPrefix+"switch_port_connected_total",
@@ -239,18 +255,36 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 				c.collectXdslStats(ch, m.Xdsl.Down, "down")
 			}
 			if m.Ftth != nil {
-				ch <- prometheus.MustNewConstMetric(promDescConnectionFtthInfo, prometheus.GaugeValue, 1,
-					c.toString(m.Ftth.SfpPresent),
-					c.toString(m.Ftth.SfpAlimOk),
-					c.toString(m.Ftth.SfpHasPowerReport),
-					c.toString(m.Ftth.SfpHasSignal),
-					c.toString(m.Ftth.Link),
+				c.collectBool(ch, m.Ftth.SfpPresent, promDescConnectionFtthSfpPresent,
 					m.Ftth.SfpSerial,
 					m.Ftth.SfpModel,
 					m.Ftth.SfpVendor)
-
-				c.collectGaugeWithFactor(ch, m.Ftth.SfpPwrTx, 0.01, promDescConnectionFtthSfpPwr, "tx")
-				c.collectGaugeWithFactor(ch, m.Ftth.SfpPwrRx, 0.01, promDescConnectionFtthSfpPwr, "rx")
+				c.collectBool(ch, m.Ftth.SfpAlimOk, promDescConnectionFtthSfpAlimOk,
+					m.Ftth.SfpSerial,
+					m.Ftth.SfpModel,
+					m.Ftth.SfpVendor)
+				c.collectBool(ch, m.Ftth.SfpHasPowerReport, promDescConnectionFtthSfpHasPowerReport,
+					m.Ftth.SfpSerial,
+					m.Ftth.SfpModel,
+					m.Ftth.SfpVendor)
+				c.collectBool(ch, m.Ftth.SfpHasSignal, promDescConnectionFtthSfpHasSignal,
+					m.Ftth.SfpSerial,
+					m.Ftth.SfpModel,
+					m.Ftth.SfpVendor)
+				c.collectBool(ch, m.Ftth.Link, promDescConnectionFtthLink,
+					m.Ftth.SfpSerial,
+					m.Ftth.SfpModel,
+					m.Ftth.SfpVendor)
+				c.collectGaugeWithFactor(ch, m.Ftth.SfpPwrTx, 0.01, promDescConnectionFtthSfpPwr,
+					m.Ftth.SfpSerial,
+					m.Ftth.SfpModel,
+					m.Ftth.SfpVendor,
+					"tx")
+				c.collectGaugeWithFactor(ch, m.Ftth.SfpPwrRx, 0.01, promDescConnectionFtthSfpPwr,
+					m.Ftth.SfpSerial,
+					m.Ftth.SfpModel,
+					m.Ftth.SfpVendor,
+					"rx")
 			}
 		} else {
 			log.Error.Println(err)
@@ -491,6 +525,16 @@ func (c *Collector) collectXdslStats(ch chan<- prometheus.Metric, stats *fbx.Met
 		} else {
 			c.collectGauge(ch, stats.Attn, promDescConnectionXdslAttn, dir)
 		}
+	}
+}
+
+func (c *Collector) collectBool(ch chan<- prometheus.Metric, value *bool, desc *prometheus.Desc, labels ...string) {
+	if value != nil {
+		v := float64(0)
+		if *value {
+			v = 1
+		}
+		ch <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, v, labels...)
 	}
 }
 
