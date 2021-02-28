@@ -164,7 +164,8 @@ type MetricsFreeboxSwitchPortStats struct {
 
 // MetricsFreeboxWifi https://dev.freebox.fr/sdk/os/wifi/
 type MetricsFreeboxWifi struct {
-	Ap []*MetricsFreeboxWifiAp
+	Ap  []*MetricsFreeboxWifiAp
+	Bss []*MetricsFreeboxWifiBss
 }
 
 // MetricsFreeboxWifiAp https://dev.freebox.fr/sdk/os/wifi/#WifiAp
@@ -229,7 +230,7 @@ type MetricsFreeboxWifiBss struct {
 		StaCount           *int64 `json:"sta_count"`
 		AuthorizedStaCount *int64 `json:"authorized_sta_count"`
 		IsMainBss          *bool  `json:"is_main_bss"`
-	} `json:"struct"`
+	} `json:"status"`
 	Config struct {
 		Enabled          *bool  `json:"enabled"`
 		UseDefaultConfig *bool  `json:"use_default_config"`
@@ -358,7 +359,6 @@ func (f *FreeboxConnection) GetMetricsSwitch() (*MetricsFreeboxSwitch, error) {
 // GetMetricsWifi https://dev.freebox.fr/sdk/os/wifi/
 func (f *FreeboxConnection) GetMetricsWifi() (*MetricsFreeboxWifi, error) {
 	res := new(MetricsFreeboxWifi)
-	bssMap := map[string]*MetricsFreeboxWifiBss{}
 
 	wg := sync.WaitGroup{}
 	wg.Add(2)
@@ -366,12 +366,8 @@ func (f *FreeboxConnection) GetMetricsWifi() (*MetricsFreeboxWifi, error) {
 	go func() {
 		defer wg.Done()
 
-		bss := []*MetricsFreeboxWifiBss{}
-		if err := f.get("wifi/bss/", &bss); err != nil {
+		if err := f.get("wifi/bss/", &res.Bss); err != nil {
 			log.Warning.Println("Could not get the BSS", err)
-		}
-		for _, b := range bss {
-			bssMap[b.ID] = b
 		}
 	}()
 
@@ -400,6 +396,11 @@ func (f *FreeboxConnection) GetMetricsWifi() (*MetricsFreeboxWifi, error) {
 	}()
 
 	wg.Wait()
+
+	bssMap := map[string]*MetricsFreeboxWifiBss{}
+	for _, b := range res.Bss {
+		bssMap[b.ID] = b
+	}
 
 	for _, ap := range res.Ap {
 		for _, station := range ap.Stations {
