@@ -1,8 +1,9 @@
 package log
 
 import (
-	"io"
+	"io/ioutil"
 	"log"
+	"os"
 )
 
 var (
@@ -12,25 +13,27 @@ var (
 	Error   *log.Logger
 )
 
-func Init(
-	debugHandle io.Writer,
-	infoHandle io.Writer,
-	warningHandle io.Writer,
-	errorHandle io.Writer) {
-
-	Debug = log.New(debugHandle,
+func InitDebug() {
+	Debug = log.New(os.Stdout,
 		"DEBUG: ",
 		log.Ldate|log.Ltime|log.Lshortfile)
 
-	Info = log.New(infoHandle,
+	Info = log.New(os.Stdout,
 		"INFO: ",
 		log.Ldate|log.Ltime|log.Lshortfile)
 
-	Warning = log.New(warningHandle,
+	Warning = log.New(os.Stdout,
 		"WARNING: ",
 		log.Ldate|log.Ltime|log.Lshortfile)
 
-	Error = log.New(errorHandle,
+	Error = log.New(os.Stderr,
 		"ERROR: ",
 		log.Ldate|log.Ltime|log.Lshortfile)
+}
+
+func Init() {
+	Debug = log.New(ioutil.Discard, "", 0)
+	Info = log.New(os.Stdout, "", 0)
+	Warning = log.New(os.Stdout, "", 0)
+	Error = log.New(os.Stderr, "", 0)
 }

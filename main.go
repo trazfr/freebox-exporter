@@ -1,10 +1,8 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"os"
 
@@ -15,34 +13,39 @@ import (
 	"github.com/trazfr/freebox-exporter/log"
 )
 
-func usage(err error) {
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
-	}
-	fmt.Fprintln(os.Stderr, "Usage:", os.Args[0], "[options] <api_token_file>")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Options:")
+func usage() {
+	fmt.Fprintf(flag.CommandLine.Output(),
+		"Usage: %s [options] <api_token_file>\n"+
+			"\n"+
+			"api_token_file: file to store the token for the API\n"+
+			"\n"+
+			"options:\n",
+		os.Args[0])
 	flag.PrintDefaults()
-	os.Exit(-1)
 }
 
 func main() {
+	flag.Usage = usage
 	debugPtr := flag.Bool("debug", false, "enable the debug mode")
 	hostDetailsPtr := flag.Bool("hostDetails", false, "get details about the hosts connected to wifi and ethernet. This increases the number of metrics")
-	httpDiscoveryPtr := flag.Bool("httpDiscovery", false, "use http://mafreebox.freebox.fr/api_version to discover the Freebox at the first run (default: mDNS)")
+	httpDiscoveryPtr := flag.Bool("httpDiscovery", false, "use http://mafreebox.freebox.fr/api_version to discover the Freebox at the first run (by default: use mDNS)")
 	listenPtr := flag.String("listen", ":9091", "listen to address")
 	flag.Parse()
 
 	args := flag.Args()
 	if len(args) < 1 {
-		usage(errors.New("api_token_file not defined"))
+		fmt.Fprintf(flag.CommandLine.Output(), "ERROR: api_token_file not defined\n")
+		usage()
+		os.Exit(1)
 	} else if len(args) > 1 {
-		usage(errors.New("too many arguments"))
+		fmt.Fprintf(flag.CommandLine.Output(), "ERROR: too many arguments\n")
+		usage()
+		os.Exit(1)
 	}
 	if *debugPtr {
-		log.Init(os.Stdout, os.Stdout, os.Stdout, os.Stderr)
+		log.InitDebug()
 	} else {
-		log.Init(ioutil.Discard, os.Stdout, os.Stdout, os.Stderr)
+		log.Init()
 	}
 	discovery := fbx.FreeboxDiscoveryMDNS
 	if *httpDiscoveryPtr {
@@ -55,5 +58,6 @@ func main() {
 	prometheus.MustRegister(collector)
 
 	http.Handle("/metrics", promhttp.Handler())
+	log.Info.Println("Listen to", *listenPtr)
 	log.Error.Println(http.ListenAndServe(*listenPtr, nil))
 }

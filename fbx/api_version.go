@@ -46,7 +46,7 @@ func NewFreeboxAPIVersion(client *FreeboxHttpClient, discovery FreeboxDiscovery)
 	if result.IsValid() == false {
 		return nil, errors.New("Could not get the API version")
 	}
-	log.Info.Println("APIVersion", result)
+	log.Debug.Println("APIVersion", result)
 	return result, nil
 }
 
