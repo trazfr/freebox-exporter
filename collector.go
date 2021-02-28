@@ -100,7 +100,7 @@ var (
 	promDescWifiApChannel = prometheus.NewDesc(
 		metricPrefix+"wifi_ap_channel",
 		"channel number",
-		[]string{"ap_id", "ap_band", "ap_name", "state", "channel_type"}, nil)
+		[]string{"ap_id", "ap_band", "ap_name", "channel_type"}, nil)
 	promDescWifiApStations = prometheus.NewDesc(
 		metricPrefix+"wifi_stations",
 		"number of stations connected to the AP",
@@ -294,7 +294,10 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 
 				if capabilities, ok := ap.Capabilities[ap.Config.Band]; ok {
 					labels := prometheus.Labels{}
-					labels["band"] = ap.Config.Band
+					labels["ap_id"] = apID
+					labels["ap_band"] = ap.Config.Band
+					labels["ap_name"] = ap.Name
+					labels["ap_state"] = ap.Status.State
 
 					for k, v := range capabilities {
 						labels[k] = strconv.FormatBool(v)
@@ -312,13 +315,11 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 					apID,
 					ap.Config.Band,
 					ap.Name,
-					ap.Status.State,
 					"primary")
 				c.collectGauge(ch, ap.Status.SecondaryChannel, promDescWifiApChannel,
 					apID,
 					ap.Config.Band,
 					ap.Name,
-					ap.Status.State,
 					"secondary")
 				ch <- prometheus.MustNewConstMetric(promDescWifiApStations, prometheus.GaugeValue, float64(len(ap.Stations)),
 					apID,
@@ -500,7 +501,7 @@ func (c *Collector) toBool(b *bool) bool {
 	return b != nil && *b
 }
 
-func NewCollector(filename string, hostDetails, debug bool) *Collector {
+func NewCollector(filename string, discovery fbx.FreeboxDiscovery, hostDetails, debug bool) *Collector {
 	result := &Collector{
 		hostDetails: hostDetails,
 	}
@@ -515,7 +516,7 @@ func NewCollector(filename string, hostDetails, debug bool) *Collector {
 	} else {
 		log.Info.Println("Could not find the configuration file", filename)
 		newConfig = true
-		result.freebox, err = fbx.NewFreeboxConnection(debug)
+		result.freebox, err = fbx.NewFreeboxConnectionFromServiceDiscovery(debug, discovery)
 		if err != nil {
 			panic(err)
 		}

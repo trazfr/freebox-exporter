@@ -21,9 +21,9 @@ type FreeboxConnection struct {
  * FreeboxConnection
  */
 
-func NewFreeboxConnection(debug bool) (*FreeboxConnection, error) {
+func NewFreeboxConnectionFromServiceDiscovery(debug bool, discovery FreeboxDiscovery) (*FreeboxConnection, error) {
 	client := NewFreeboxHttpClient(debug)
-	apiVersion, err := NewFreeboxAPIVersionHTTP(client)
+	apiVersion, err := NewFreeboxAPIVersion(client, discovery)
 	if err != nil {
 		return nil, err
 	}
