@@ -33,7 +33,7 @@ var (
 		metricPrefix+"system_fan_rpm",
 		"fan rpm",
 		[]string{"id"}, nil)
-	promDescConnectionBandwith = prometheus.NewDesc(
+	promDescConnectionBandwidth = prometheus.NewDesc(
 		metricPrefix+"connection_bandwith_bps",
 		"available upload/download bandwidth in bit/s",
 		[]string{"dir"}, nil) // up/down
@@ -142,8 +142,8 @@ var (
 		metricPrefix+"wifi_station_bytes",
 		"total rx/tx bytes",
 		[]string{"id", "dir"}, nil)
-	promDescWifiApStationSignal = prometheus.NewDesc(
-		metricPrefix+"wifi_station_signal",
+	promDescWifiApStationSignalDb = prometheus.NewDesc(
+		metricPrefix+"wifi_station_signal_db",
 		"signal attenuation in dB",
 		[]string{"id"}, nil)
 
@@ -238,8 +238,8 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 			cnxIPv4 = m.IPv4
 			cnxIPv6 = m.IPv6
 
-			c.collectGauge(ch, m.BandwidthUp, promDescConnectionBandwith, "up")
-			c.collectGauge(ch, m.BandwidthDown, promDescConnectionBandwith, "down")
+			c.collectGauge(ch, m.BandwidthUp, promDescConnectionBandwidth, "up")
+			c.collectGauge(ch, m.BandwidthDown, promDescConnectionBandwidth, "down")
 			c.collectCounter(ch, m.BytesUp, promDescConnectionBytes, "up")
 			c.collectCounter(ch, m.BytesDown, promDescConnectionBytes, "down")
 			if m.Xdsl != nil {
@@ -422,7 +422,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 							stationID,
 							"tx",
 						)
-						c.collectGauge(ch, station.Signal, promDescWifiApStationSignal,
+						c.collectGauge(ch, station.Signal, promDescWifiApStationSignalDb,
 							stationID)
 					}
 				}
