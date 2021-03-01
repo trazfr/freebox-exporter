@@ -141,11 +141,11 @@ var (
 	promDescWifiApStationBytes = prometheus.NewDesc(
 		metricPrefix+"wifi_station_bytes",
 		"total rx/tx bytes",
-		[]string{"bssid", "mac", "dir"}, nil)
+		[]string{"id", "dir"}, nil)
 	promDescWifiApStationSignal = prometheus.NewDesc(
 		metricPrefix+"wifi_station_signal",
 		"signal attenuation in dB",
-		[]string{"bssid", "mac"}, nil)
+		[]string{"id"}, nil)
 
 	promDescLanHostTotal = prometheus.NewDesc(
 		metricPrefix+"lan_host_total",
@@ -197,7 +197,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 
 		if m, err := c.freebox.GetMetricsSystem(); err == nil {
 			firmwareVersion = m.FirmwareVersion
-			mac = m.Mac
+			mac = strings.ToLower(m.Mac)
 			serial = m.Serial
 			boardName = m.BoardName
 			boxFlavor = m.BoxFlavor
@@ -339,16 +339,17 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 
 			for _, bss := range m.Bss {
 				phyID := strconv.FormatInt(bss.PhyID, 10)
+				bssid := strings.ToLower(bss.ID)
 				ch <- prometheus.MustNewConstMetric(promDescWifiBssInfo, prometheus.GaugeValue, 1,
-					bss.ID,
+					bssid,
 					phyID,
 					bss.Status.State,
 					c.toString(bss.Config.Enabled),
 					bss.Config.Ssid,
 					c.toString(bss.Config.HideSsid),
 					bss.Config.Encryption)
-				c.collectGauge(ch, bss.Status.StaCount, promDescWifiBssStationTotal, bss.ID, phyID)
-				c.collectGauge(ch, bss.Status.AuthorizedStaCount, promDescWifiBssAuthorizedStationTotal, bss.ID, phyID)
+				c.collectGauge(ch, bss.Status.StaCount, promDescWifiBssStationTotal, bssid, phyID)
+				c.collectGauge(ch, bss.Status.AuthorizedStaCount, promDescWifiBssAuthorizedStationTotal, bssid, phyID)
 			}
 
 			for _, ap := range m.Ap {
@@ -393,6 +394,9 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 						if station.Host != nil && c.toBool(station.Host.Active) {
 							stationActive = 1
 						}
+						bssid := strings.ToLower(station.Bssid)
+						mac := strings.ToLower(station.Mac)
+						stationID := strings.ToLower(station.ID)
 						ssid := ""
 						encryption := ""
 						if station.Bss != nil {
@@ -404,25 +408,22 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 							apID,
 							ap.Config.Band,
 							ap.Name,
-							station.ID,
-							station.Bssid,
+							stationID,
+							bssid,
 							ssid,
 							encryption,
 							station.Hostname,
-							strings.ToLower(station.Mac))
+							mac)
 						c.collectCounter(ch, station.RxBytes, promDescWifiApStationBytes,
-							station.Bssid,
-							station.Mac,
+							stationID,
 							"rx",
 						)
 						c.collectCounter(ch, station.TxBytes, promDescWifiApStationBytes,
-							station.Bssid,
-							station.Mac,
+							stationID,
 							"tx",
 						)
 						c.collectGauge(ch, station.Signal, promDescWifiApStationSignal,
-							station.Bssid,
-							station.Mac)
+							stationID)
 					}
 				}
 			}
@@ -500,7 +501,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 	wg.Wait()
 	ch <- prometheus.MustNewConstMetric(promDescInfo, prometheus.GaugeValue, 1,
 		firmwareVersion,
-		strings.ToLower(mac),
+		mac,
 		serial,
 		boardName,
 		boxFlavor,
