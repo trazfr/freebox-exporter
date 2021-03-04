@@ -25,21 +25,15 @@ type FreeboxHttpClient struct {
 	decoder func(io.Reader, interface{}) error
 }
 
+type freeboxAPIResponse struct {
+	Success   bool   `json:"success"`
+	Message   string `json:"msg"`
+	ErrorCode string `json:"error_code"`
+}
+
 type FreeboxHttpClientCallback func(*http.Request)
 
-func jsonDecoder(reader io.Reader, out interface{}) error {
-	return json.NewDecoder(reader).Decode(out)
-}
-func jsonDebugDecoder(reader io.Reader, out interface{}) error {
-	data, err := ioutil.ReadAll(reader)
-	if err != nil {
-		return err
-	}
-	log.Debug.Println("HTTP result:", string(data))
-	return jsonDecoder(bytes.NewBuffer(data), out)
-}
-
-func NewFreeboxHttpClient(debug bool) *FreeboxHttpClient {
+func NewFreeboxHttpClient() *FreeboxHttpClient {
 	result := &FreeboxHttpClient{
 		client: http.Client{
 			Transport: &http.Transport{
@@ -49,13 +43,7 @@ func NewFreeboxHttpClient(debug bool) *FreeboxHttpClient {
 			},
 			Timeout: 10 * time.Second,
 		},
-		ctx:     context.Background(),
-		decoder: jsonDecoder,
-	}
-
-	if debug {
-		log.Debug.Println("Debug enabled")
-		result.decoder = jsonDebugDecoder
+		ctx: context.Background(),
 	}
 
 	return result
@@ -97,31 +85,39 @@ func (f *FreeboxHttpClient) do(req *http.Request, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
-	if err != nil {
-		return err
-	}
+	var body []byte
+	{
+		defer res.Body.Close()
 
-	r := struct {
-		Success   bool        `json:"success"`
-		Message   string      `json:"msg"`
-		ErrorCode string      `json:"error_code"`
-		Result    interface{} `json:"result"`
-	}{
-		Result: out,
+		body, err = ioutil.ReadAll(res.Body)
+		if err != nil {
+			return err
+		}
 	}
-	if err := f.decoder(res.Body, &r); err != nil {
+	log.Debug.Println("HTTP Result:", string(body))
+
+	apiResponse := freeboxAPIResponse{}
+	if err := json.Unmarshal(body, &apiResponse); err != nil {
 		return err
 	}
-	if r.Success == false {
-		switch r.ErrorCode {
+	if apiResponse.Success == false {
+		switch apiResponse.ErrorCode {
 		case errAuthRequired.Error():
 			return errAuthRequired
 		case errInvalidToken.Error():
 			return errInvalidToken
 		default:
-			return fmt.Errorf("%s %s error_code=%s msg=%s", req.Method, req.URL, r.ErrorCode, r.Message)
+			return fmt.Errorf("%s %s error_code=%s msg=%s", req.Method, req.URL, apiResponse.ErrorCode, apiResponse.Message)
 		}
+	}
+
+	result := struct {
+		Result interface{} `json:"result"`
+	}{
+		Result: out,
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return err
 	}
 
 	return nil

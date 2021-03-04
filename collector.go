@@ -582,14 +582,14 @@ func NewCollector(filename string, discovery fbx.FreeboxDiscovery, hostDetails, 
 	if r, err := os.Open(filename); err == nil {
 		log.Info.Println("Use configuration file", filename)
 		defer r.Close()
-		result.freebox, err = fbx.NewFreeboxConnectionFromConfig(debug, r)
+		result.freebox, err = fbx.NewFreeboxConnectionFromConfig(r)
 		if err != nil {
 			panic(err)
 		}
 	} else {
 		log.Info.Println("Could not find the configuration file", filename)
 		newConfig = true
-		result.freebox, err = fbx.NewFreeboxConnectionFromServiceDiscovery(debug, discovery)
+		result.freebox, err = fbx.NewFreeboxConnectionFromServiceDiscovery(discovery)
 		if err != nil {
 			panic(err)
 		}
