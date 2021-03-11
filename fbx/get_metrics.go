@@ -222,6 +222,7 @@ type MetricsFreeboxWifiStation struct {
 	Bss *MetricsFreeboxWifiBss `json:"-"`
 }
 
+// MetricsFreeboxWifiBss https://dev.freebox.fr/sdk/os/wifi/#WifiBss
 type MetricsFreeboxWifiBss struct {
 	ID     string `json:"id"`
 	PhyID  int64  `json:"phy_id"`
@@ -289,6 +290,11 @@ type MetricsFreeboxLanHost struct {
 		LastActivity      *int64 `json:"last_activity"`
 		LastTimeReachable *int64 `json:"last_time_reachable"`
 	} `json:"l3connectivities"`
+}
+
+// GetApiVersion get the connection info
+func (f *FreeboxConnection) GetAPIVersion() FreeboxAPIVersion {
+	return *f.config.APIVersion
 }
 
 // GetMetricsSystem http://mafreebox.freebox.fr/api/v5/system/

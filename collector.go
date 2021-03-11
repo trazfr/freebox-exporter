@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,6 +17,10 @@ const (
 )
 
 var (
+	promDescExporterInfo = prometheus.NewDesc(
+		metricPrefix+"exporter_info",
+		"constant metric with value=1. Information about the Freebox Exporter",
+		[]string{"url", "api_version"}, nil)
 	promDescInfo = prometheus.NewDesc(
 		metricPrefix+"info",
 		"constant metric with value=1. Various information about the Freebox",
@@ -33,9 +38,9 @@ var (
 		metricPrefix+"system_fan_rpm",
 		"fan rpm",
 		[]string{"id"}, nil)
-	promDescConnectionBandwidth = prometheus.NewDesc(
-		metricPrefix+"connection_bandwith_bps",
-		"available upload/download bandwidth in bit/s",
+	promDescConnectionBandwidthBytes = prometheus.NewDesc(
+		metricPrefix+"connection_bandwith_bytes",
+		"available upload/download bandwidth in bytes/s",
 		[]string{"dir"}, nil) // up/down
 	promDescConnectionBytes = prometheus.NewDesc(
 		metricPrefix+"connection_bytes",
@@ -50,13 +55,13 @@ var (
 		metricPrefix+"connection_xdsl_uptime",
 		"uptime in seconds",
 		nil, nil)
-	promDescConnectionXdslMaxRate = prometheus.NewDesc(
-		metricPrefix+"connection_xdsl_maxrate_bps",
-		"ATM max rate in bit/s",
+	promDescConnectionXdslMaxRateBytes = prometheus.NewDesc(
+		metricPrefix+"connection_xdsl_maxrate_bytes",
+		"ATM max rate in bytes/s",
 		[]string{"dir"}, nil) // up/down
-	promDescConnectionXdslRate = prometheus.NewDesc(
-		metricPrefix+"connection_xdsl_rate_bps",
-		"ATM rate in bit/s",
+	promDescConnectionXdslRateBytes = prometheus.NewDesc(
+		metricPrefix+"connection_xdsl_rate_bytes",
+		"ATM rate in bytes/s",
 		[]string{"dir"}, nil) // up/down
 	promDescConnectionXdslSnr = prometheus.NewDesc(
 		metricPrefix+"connection_xdsl_snr_db",
@@ -96,10 +101,14 @@ var (
 		metricPrefix+"switch_port_connected_total",
 		"number of ports connnected",
 		nil, nil)
-	promDescSwitchPortBandwidth = prometheus.NewDesc(
-		metricPrefix+"switch_port_bandwidth",
-		"in bps",
+	promDescSwitchPortBandwidthBytes = prometheus.NewDesc(
+		metricPrefix+"switch_port_bandwidth_bytes",
+		"in bytes/s",
 		[]string{"id", "link", "duplex"}, nil) // rx/tx
+	promDescSwitchPortPackets = prometheus.NewDesc(
+		metricPrefix+"switch_port_packets",
+		"total rx/tx packets",
+		[]string{"id", "dir", "state"}, nil) // rx/tx, good/bad
 	promDescSwitchPortBytes = prometheus.NewDesc(
 		metricPrefix+"switch_port_bytes",
 		"total rx/tx bytes",
@@ -116,7 +125,7 @@ var (
 	promDescWifiBssInfo = prometheus.NewDesc(
 		metricPrefix+"wifi_bss_info",
 		"constant metric with value=1. Various information about the BSS",
-		[]string{"bssid", "ap_id", "state", "enabled", "ssid", "hide_ssid", "encryption"}, nil)
+		[]string{"bssid", "ap_id", "state", "enabled", "ssid", "hide_ssid", "encryption", "eapol_version"}, nil)
 	promDescWifiBssStationTotal = prometheus.NewDesc(
 		metricPrefix+"wifi_bss_station_total",
 		"number of stations on this BSS",
@@ -127,24 +136,24 @@ var (
 		[]string{"bssid", "ap_id"}, nil)
 
 	promDescWifiApChannel = prometheus.NewDesc(
-		metricPrefix+"wifi_ap_channel",
-		"channel number",
+		metricPrefix+"wifi_channel",
+		"channel number use by the AP",
 		[]string{"ap_id", "ap_band", "ap_name", "channel_type"}, nil)
 	promDescWifiApStationTotal = prometheus.NewDesc(
 		metricPrefix+"wifi_station_total",
 		"number of stations connected to the AP",
 		[]string{"ap_id", "ap_band", "ap_name"}, nil)
-	promDescWifiApStation = prometheus.NewDesc(
-		metricPrefix+"wifi_station",
+	promDescWifiApStationInfo = prometheus.NewDesc(
+		metricPrefix+"wifi_station_info",
 		"1 if active, 0 if not",
 		[]string{"ap_id", "ap_band", "ap_name", "id", "bssid", "ssid", "encryption", "hostname", "mac"}, nil)
 	promDescWifiApStationBytes = prometheus.NewDesc(
 		metricPrefix+"wifi_station_bytes",
 		"total rx/tx bytes",
 		[]string{"id", "dir"}, nil)
-	promDescWifiApStationSignalDb = prometheus.NewDesc(
-		metricPrefix+"wifi_station_signal_db",
-		"signal attenuation in dB",
+	promDescWifiApStationSignalDbm = prometheus.NewDesc(
+		metricPrefix+"wifi_station_signal_dbm", // written dB in the doc... but I have some doubts
+		"signal attenuation in dBm",
 		[]string{"id"}, nil)
 
 	promDescLanHostTotal = prometheus.NewDesc(
@@ -186,6 +195,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 	wg := sync.WaitGroup{}
 	wg.Add(5)
 
+	getMetricSuccessful := true
 	var firmwareVersion string
 	var mac string
 	var serial string
@@ -218,6 +228,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 				c.collectGauge(ch, m.FanRpm, promDescSystemFanRpm, "fan")
 			}
 		} else {
+			getMetricSuccessful = false
 			log.Error.Println(err)
 		}
 	}()
@@ -238,8 +249,8 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 			cnxIPv4 = m.IPv4
 			cnxIPv6 = m.IPv6
 
-			c.collectGauge(ch, m.BandwidthUp, promDescConnectionBandwidth, "up")
-			c.collectGauge(ch, m.BandwidthDown, promDescConnectionBandwidth, "down")
+			c.collectGaugeWithFactor(ch, m.BandwidthUp, 1./8, promDescConnectionBandwidthBytes, "up")
+			c.collectGaugeWithFactor(ch, m.BandwidthDown, 1./8, promDescConnectionBandwidthBytes, "down")
 			c.collectCounter(ch, m.BytesUp, promDescConnectionBytes, "up")
 			c.collectCounter(ch, m.BytesDown, promDescConnectionBytes, "down")
 			if m.Xdsl != nil {
@@ -287,6 +298,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 					"rx")
 			}
 		} else {
+			getMetricSuccessful = false
 			log.Error.Println(err)
 		}
 	}()
@@ -304,8 +316,8 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 				}
 
 				speed, _ := strconv.Atoi(port.Speed)
-				portID := strconv.FormatInt(port.ID, 10)
-				ch <- prometheus.MustNewConstMetric(promDescSwitchPortBandwidth, prometheus.GaugeValue, float64(speed),
+				portID := c.toString(port.ID)
+				ch <- prometheus.MustNewConstMetric(promDescSwitchPortBandwidthBytes, prometheus.GaugeValue, float64(speed)/8,
 					portID,
 					port.Link,
 					port.Duplex)
@@ -313,6 +325,10 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 					c.collectCounter(ch, port.Stats.RxGoodBytes, promDescSwitchPortBytes, portID, "rx", "good")
 					c.collectCounter(ch, port.Stats.RxBadBytes, promDescSwitchPortBytes, portID, "rx", "bad")
 					c.collectCounter(ch, port.Stats.TxBytes, promDescSwitchPortBytes, portID, "tx", "")
+
+					c.collectCounter(ch, port.Stats.RxGoodPackets, promDescSwitchPortPackets, portID, "rx", "good")
+					c.collectCounter(ch, port.Stats.RxBroadcastPackets, promDescSwitchPortPackets, portID, "rx", "bad")
+					c.collectCounter(ch, port.Stats.TxBroadcastPackets, promDescSwitchPortPackets, portID, "tx", "")
 				}
 
 				ch <- prometheus.MustNewConstMetric(promDescSwitchHostTotal, prometheus.GaugeValue, float64(len(port.MacList)), portID)
@@ -328,6 +344,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 
 			ch <- prometheus.MustNewConstMetric(promDescSwitchPortConnectedTotal, prometheus.GaugeValue, float64(numPortsConnected))
 		} else {
+			getMetricSuccessful = false
 			log.Error.Println(err)
 		}
 	}()
@@ -340,6 +357,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 			for _, bss := range m.Bss {
 				phyID := strconv.FormatInt(bss.PhyID, 10)
 				bssid := strings.ToLower(bss.ID)
+
 				ch <- prometheus.MustNewConstMetric(promDescWifiBssInfo, prometheus.GaugeValue, 1,
 					bssid,
 					phyID,
@@ -347,7 +365,8 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 					c.toString(bss.Config.Enabled),
 					bss.Config.Ssid,
 					c.toString(bss.Config.HideSsid),
-					bss.Config.Encryption)
+					bss.Config.Encryption,
+					c.toString(bss.Config.EapolVersion))
 				c.collectGauge(ch, bss.Status.StaCount, promDescWifiBssStationTotal, bssid, phyID)
 				c.collectGauge(ch, bss.Status.AuthorizedStaCount, promDescWifiBssAuthorizedStationTotal, bssid, phyID)
 			}
@@ -363,14 +382,14 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 					labels["ap_state"] = ap.Status.State
 
 					for k, v := range capabilities {
-						labels[k] = strconv.FormatBool(v)
+						labels[k] = c.toString(v)
 					}
 
-					promDescWifiApCapabilities := prometheus.NewDesc(
-						metricPrefix+"wifi_ap_capabilities",
+					promDescWifiApInfo := prometheus.NewDesc(
+						metricPrefix+"wifi_ap_info",
 						"constant metric with value=1. List of AP capabilities",
 						nil, labels)
-					ch <- prometheus.MustNewConstMetric(promDescWifiApCapabilities, prometheus.GaugeValue, 1)
+					ch <- prometheus.MustNewConstMetric(promDescWifiApInfo, prometheus.GaugeValue, 1)
 
 				}
 
@@ -390,10 +409,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 					ap.Name)
 				if c.hostDetails {
 					for _, station := range ap.Stations {
-						stationActive := float64(0)
-						if station.Host != nil && c.toBool(station.Host.Active) {
-							stationActive = 1
-						}
+						stationActive := c.toFloat(station.Host != nil && c.toBool(station.Host.Active))
 						bssid := strings.ToLower(station.Bssid)
 						mac := strings.ToLower(station.Mac)
 						stationID := strings.ToLower(station.ID)
@@ -404,7 +420,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 							encryption = station.Bss.Config.Encryption
 						}
 
-						ch <- prometheus.MustNewConstMetric(promDescWifiApStation, prometheus.GaugeValue, stationActive,
+						ch <- prometheus.MustNewConstMetric(promDescWifiApStationInfo, prometheus.GaugeValue, stationActive,
 							apID,
 							ap.Config.Band,
 							ap.Name,
@@ -422,12 +438,13 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 							stationID,
 							"tx",
 						)
-						c.collectGauge(ch, station.Signal, promDescWifiApStationSignalDb,
+						c.collectGauge(ch, station.Signal, promDescWifiApStationSignalDbm,
 							stationID)
 					}
 				}
 			}
 		} else {
+			getMetricSuccessful = false
 			log.Error.Println(err)
 		}
 
@@ -453,11 +470,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 						}
 
 						if c.hostDetails {
-							l2Active := float64(0)
-							if active {
-								l2Active = 1
-							}
-							ch <- prometheus.MustNewConstMetric(promDescLanHostActiveL2, prometheus.GaugeValue, l2Active,
+							ch <- prometheus.MustNewConstMetric(promDescLanHostActiveL2, prometheus.GaugeValue, c.toFloat(active),
 								name,
 								host.VendorName,
 								host.PrimaryName,
@@ -466,11 +479,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 								strings.ToLower(host.L2Ident.ID))
 
 							for _, l3 := range host.L3Connectivities {
-								l3Active := float64(0)
-								if c.toBool(l3.Active) {
-									l3Active = 1
-								}
-								ch <- prometheus.MustNewConstMetric(promDescLanHostActiveL3, prometheus.GaugeValue, l3Active,
+								ch <- prometheus.MustNewConstMetric(promDescLanHostActiveL3, prometheus.GaugeValue, c.toFloat(c.toBool(l3.Active)),
 									name,
 									host.VendorName,
 									host.PrimaryName,
@@ -494,11 +503,19 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 				}
 			}
 		} else {
+			getMetricSuccessful = false
 			log.Error.Println(err)
 		}
 	}()
 
 	wg.Wait()
+
+	apiVersion := c.freebox.GetAPIVersion()
+	url, _ := apiVersion.GetURL("")
+	ch <- prometheus.MustNewConstMetric(promDescExporterInfo, prometheus.GaugeValue, c.toFloat(getMetricSuccessful),
+		url,
+		apiVersion.APIVersion)
+
 	ch <- prometheus.MustNewConstMetric(promDescInfo, prometheus.GaugeValue, 1,
 		firmwareVersion,
 		mac,
@@ -514,8 +531,8 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 
 func (c *Collector) collectXdslStats(ch chan<- prometheus.Metric, stats *fbx.MetricsFreeboxConnectionXdslStats, dir string) {
 	if stats != nil {
-		c.collectGaugeWithFactor(ch, stats.Maxrate, 1000, promDescConnectionXdslMaxRate)
-		c.collectGaugeWithFactor(ch, stats.Rate, 1000, promDescConnectionXdslRate)
+		c.collectGaugeWithFactor(ch, stats.Maxrate, 1000./8, promDescConnectionXdslMaxRateBytes)
+		c.collectGaugeWithFactor(ch, stats.Rate, 1000./8, promDescConnectionXdslRateBytes)
 		if stats.Snr10 != nil {
 			c.collectGaugeWithFactor(ch, stats.Snr10, 0.1, promDescConnectionXdslSnr)
 		} else {
@@ -531,11 +548,7 @@ func (c *Collector) collectXdslStats(ch chan<- prometheus.Metric, stats *fbx.Met
 
 func (c *Collector) collectBool(ch chan<- prometheus.Metric, value *bool, desc *prometheus.Desc, labels ...string) {
 	if value != nil {
-		v := float64(0)
-		if *value {
-			v = 1
-		}
-		ch <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, v, labels...)
+		ch <- prometheus.MustNewConstMetric(desc, prometheus.GaugeValue, c.toFloat(*value), labels...)
 	}
 }
 
@@ -563,15 +576,55 @@ func (c *Collector) collectConstWithFactor(ch chan<- prometheus.Metric, valueTyp
 	}
 }
 
-func (c *Collector) toString(b *bool) string {
-	if b != nil {
-		return strconv.FormatBool(*b)
+func (c *Collector) toString(i interface{}) string {
+	if val := reflect.ValueOf(i); val.Kind() == reflect.Ptr {
+		if val.IsNil() == false {
+			return c.toString(val.Elem().Interface())
+		}
+		return ""
+	}
+	switch v := i.(type) {
+	case bool:
+		return strconv.FormatBool(v)
+	case int:
+		return strconv.FormatInt(int64(v), 10)
+	case int8:
+		return strconv.FormatInt(int64(v), 10)
+	case int16:
+		return strconv.FormatInt(int64(v), 10)
+	case int32:
+		return strconv.FormatInt(int64(v), 10)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case uint:
+		return strconv.FormatUint(uint64(v), 10)
+	case uint8:
+		return strconv.FormatUint(uint64(v), 10)
+	case uint16:
+		return strconv.FormatUint(uint64(v), 10)
+	case uint32:
+		return strconv.FormatUint(uint64(v), 10)
+	case uint64:
+		return strconv.FormatUint(v, 10)
+	case float32:
+		return strconv.FormatFloat(float64(v), 'E', -1, 32)
+	case float64:
+		return strconv.FormatFloat(float64(v), 'E', -1, 64)
+	case string:
+		return v
 	}
 	return "unknown"
 }
 
 func (c *Collector) toBool(b *bool) bool {
 	return b != nil && *b
+}
+
+func (c *Collector) toFloat(b bool) float64 {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 func NewCollector(filename string, discovery fbx.FreeboxDiscovery, hostDetails, debug bool) *Collector {
