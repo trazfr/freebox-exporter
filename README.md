@@ -6,10 +6,21 @@ Prometheus exporter for the [Freebox](https://www.free.fr/freebox/)
 
 ## Install
 
-Having a working Golang environment using Go modules:
+### Since Golang 1.16
+
+Having a working Golang >= 1.16 environment using Go modules:
 
 ```bash
 go install github.com/trazfr/freebox-exporter@latest
+```
+
+### Older Golang
+
+This package requires at least Golang 1.13. For Golang 1.13:
+
+```bash
+GO111MODULE=on go get github.com/trazfr/freebox-exporter@latest
+GO111MODULE=on go install github.com/trazfr/freebox-exporter
 ```
 
 ## Use
