@@ -39,13 +39,13 @@ var (
 		"fan rpm",
 		[]string{"id"}, nil)
 	promDescConnectionBandwidthBytes = prometheus.NewDesc(
-		metricPrefix+"connection_bandwith_bytes",
+		metricPrefix+"connection_bandwidth_bytes",
 		"available upload/download bandwidth in bytes/s",
-		[]string{"dir"}, nil) // up/down
+		[]string{"dir"}, nil) // rx/tx
 	promDescConnectionBytes = prometheus.NewDesc(
 		metricPrefix+"connection_bytes",
 		"total uploaded/downloaded bytes since last connection",
-		[]string{"dir"}, nil) // up/down
+		[]string{"dir"}, nil) // rx/tx
 
 	promDescConnectionXdslInfo = prometheus.NewDesc(
 		metricPrefix+"connection_xdsl_info",
@@ -58,19 +58,19 @@ var (
 	promDescConnectionXdslMaxRateBytes = prometheus.NewDesc(
 		metricPrefix+"connection_xdsl_maxrate_bytes",
 		"ATM max rate in bytes/s",
-		[]string{"dir"}, nil) // up/down
+		[]string{"dir"}, nil) // rx/tx
 	promDescConnectionXdslRateBytes = prometheus.NewDesc(
 		metricPrefix+"connection_xdsl_rate_bytes",
 		"ATM rate in bytes/s",
-		[]string{"dir"}, nil) // up/down
+		[]string{"dir"}, nil) // rx/tx
 	promDescConnectionXdslSnr = prometheus.NewDesc(
 		metricPrefix+"connection_xdsl_snr_db",
 		"in Db",
-		[]string{"dir"}, nil) // up/down
+		[]string{"dir"}, nil) // rx/tx
 	promDescConnectionXdslAttn = prometheus.NewDesc(
 		metricPrefix+"connection_xdsl_attn_db",
 		"in Db",
-		[]string{"dir"}, nil) // up/down
+		[]string{"dir"}, nil) // rx/tx
 
 	promDescConnectionFtthSfpPresent = prometheus.NewDesc(
 		metricPrefix+"connection_ftth_sfp_present",
@@ -249,10 +249,10 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 			cnxIPv4 = m.IPv4
 			cnxIPv6 = m.IPv6
 
-			c.collectGaugeWithFactor(ch, m.BandwidthUp, 1./8, promDescConnectionBandwidthBytes, "up")
-			c.collectGaugeWithFactor(ch, m.BandwidthDown, 1./8, promDescConnectionBandwidthBytes, "down")
-			c.collectCounter(ch, m.BytesUp, promDescConnectionBytes, "up")
-			c.collectCounter(ch, m.BytesDown, promDescConnectionBytes, "down")
+			c.collectGaugeWithFactor(ch, m.BandwidthUp, 1./8, promDescConnectionBandwidthBytes, "tx")
+			c.collectGaugeWithFactor(ch, m.BandwidthDown, 1./8, promDescConnectionBandwidthBytes, "rx")
+			c.collectCounter(ch, m.BytesUp, promDescConnectionBytes, "tx")
+			c.collectCounter(ch, m.BytesDown, promDescConnectionBytes, "rx")
 			if m.Xdsl != nil {
 				if m.Xdsl.Status != nil {
 					ch <- prometheus.MustNewConstMetric(promDescConnectionXdslInfo, prometheus.GaugeValue, 1,
@@ -262,8 +262,8 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 
 					c.collectCounter(ch, m.Xdsl.Status.Uptime, promDescConnectionXdslUptime)
 				}
-				c.collectXdslStats(ch, m.Xdsl.Up, "up")
-				c.collectXdslStats(ch, m.Xdsl.Down, "down")
+				c.collectXdslStats(ch, m.Xdsl.Up, "tx")
+				c.collectXdslStats(ch, m.Xdsl.Down, "rx")
 			}
 			if m.Ftth != nil {
 				c.collectBool(ch, m.Ftth.SfpPresent, promDescConnectionFtthSfpPresent,
