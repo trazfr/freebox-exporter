@@ -183,9 +183,7 @@ func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
 		c.Collect(ch2)
 		close(ch2)
 	}()
-	metrics := make([]prometheus.Metric, 16)
 	for v := range ch2 {
-		metrics = append(metrics, v)
 		ch <- v.Desc()
 	}
 }
@@ -578,7 +576,7 @@ func (c *Collector) collectConstWithFactor(ch chan<- prometheus.Metric, valueTyp
 
 func (c *Collector) toString(i interface{}) string {
 	if val := reflect.ValueOf(i); val.Kind() == reflect.Ptr {
-		if val.IsNil() == false {
+		if !val.IsNil() {
 			return c.toString(val.Elem().Interface())
 		}
 		return ""
