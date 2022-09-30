@@ -67,7 +67,7 @@ func GetAppToken(client *FreeboxHttpClient, apiVersion *FreeboxAPIVersion) (stri
 		case "granted":
 			return postResponse.AppToken, nil
 		default:
-			return "", fmt.Errorf("Access is %s", status.Status)
+			return "", fmt.Errorf("access is %s", status.Status)
 		}
 	}
 }
@@ -110,7 +110,7 @@ func (f *FreeboxSession) Refresh() error {
 	f.sessionTokenLock.Lock()
 	defer f.sessionTokenLock.Unlock()
 
-	if sinceLastUpdate := time.Now().Sub(f.sessionTokenLastUpdate); sinceLastUpdate < 5*time.Second {
+	if sinceLastUpdate := time.Since(f.sessionTokenLastUpdate); sinceLastUpdate < 5*time.Second {
 		log.Debug.Printf("Updated %v ago. Skipping", sinceLastUpdate)
 		return nil
 	}

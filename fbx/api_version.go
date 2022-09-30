@@ -43,8 +43,8 @@ func NewFreeboxAPIVersion(client *FreeboxHttpClient, discovery FreeboxDiscovery)
 		return nil, err
 	}
 
-	if result.IsValid() == false {
-		return nil, errors.New("Could not get the API version")
+	if !result.IsValid() {
+		return nil, errors.New("could not get the API version")
 	}
 	log.Debug.Println("APIVersion", result)
 	return result, nil
@@ -56,7 +56,7 @@ func (f *FreeboxAPIVersion) IsValid() bool {
 	}
 	return f.APIDomain != "" &&
 		f.UID != "" &&
-		f.HTTPSAvailable == true &&
+		f.HTTPSAvailable &&
 		f.HTTPSPort != 0 &&
 		f.DeviceName != "" &&
 		f.APIVersion != "" &&
@@ -65,12 +65,12 @@ func (f *FreeboxAPIVersion) IsValid() bool {
 }
 
 func (f *FreeboxAPIVersion) GetURL(path string, miscPath ...interface{}) (string, error) {
-	if f.IsValid() == false {
-		return "", errors.New("Invalid FreeboxAPIVersion")
+	if !f.IsValid() {
+		return "", errors.New("invalid FreeboxAPIVersion")
 	}
 	versionSplit := strings.Split(f.APIVersion, ".")
 	if len(versionSplit) != 2 {
-		return "", fmt.Errorf("Could not decode the api version \"%s\"", f.APIVersion)
+		return "", fmt.Errorf("could not decode the api version \"%s\"", f.APIVersion)
 	}
 	args := make([]interface{}, len(miscPath)+4)
 	args[0] = f.APIDomain
@@ -85,7 +85,7 @@ func (f *FreeboxAPIVersion) GetURL(path string, miscPath ...interface{}) (string
 
 func (f *FreeboxAPIVersion) getDiscovery(discovery FreeboxDiscovery) func(client *FreeboxHttpClient) error {
 	function := func(*FreeboxHttpClient) error {
-		return errors.New("Wrong discovery argument")
+		return errors.New("wrong discovery argument")
 	}
 
 	switch discovery {
@@ -161,7 +161,6 @@ func (f *FreeboxAPIVersion) newFreeboxAPIVersionMDNS(*FreeboxHttpClient) error {
 			case "device_type":
 				f.DeviceType = kv[1]
 			default:
-				break
 			}
 		}
 		if f.IsValid() {

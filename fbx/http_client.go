@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"net/http"
 	"time"
@@ -20,9 +19,8 @@ var (
 )
 
 type FreeboxHttpClient struct {
-	client  http.Client
-	ctx     context.Context
-	decoder func(io.Reader, interface{}) error
+	client http.Client
+	ctx    context.Context
 }
 
 type freeboxAPIResponse struct {
@@ -100,7 +98,7 @@ func (f *FreeboxHttpClient) do(req *http.Request, out interface{}) error {
 	if err := json.Unmarshal(body, &apiResponse); err != nil {
 		return err
 	}
-	if apiResponse.Success == false {
+	if !apiResponse.Success {
 		switch apiResponse.ErrorCode {
 		case errAuthRequired.Error():
 			return errAuthRequired

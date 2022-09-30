@@ -45,7 +45,7 @@ S27oDfFq04XSox7JM9HdTt2hLK96x1T7FpFrBTnALzb7vHv9MhXqAT90fPR/8A==
 
 func newTLSConfig() *tls.Config {
 	caCertPool := x509.NewCertPool()
-	if caCertPool.AppendCertsFromPEM([]byte(freeboxRootCA)) == false {
+	if !caCertPool.AppendCertsFromPEM([]byte(freeboxRootCA)) {
 		panic("Could not add the certificate")
 	}
 

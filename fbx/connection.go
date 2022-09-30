@@ -52,11 +52,11 @@ func NewFreeboxConnectionFromConfig(reader io.Reader) (*FreeboxConnection, error
 	if err := json.NewDecoder(reader).Decode(&config); err != nil {
 		return nil, err
 	}
-	if config.APIVersion.IsValid() == false {
-		return nil, fmt.Errorf("Invalid api_version: %v", config.APIVersion)
+	if !config.APIVersion.IsValid() {
+		return nil, fmt.Errorf("invalid api_version: %v", config.APIVersion)
 	}
 	if config.AppToken == "" {
-		return nil, fmt.Errorf("Invalid app_token: %s", config.AppToken)
+		return nil, fmt.Errorf("invalid app_token: %s", config.AppToken)
 	}
 
 	session, err := NewFreeboxSession(config.AppToken, client, config.APIVersion)
