@@ -627,7 +627,7 @@ func (c *Collector) toFloat(b bool) float64 {
 	return 0
 }
 
-func NewCollector(filename string, discovery fbx.FreeboxDiscovery, hostDetails, debug bool) *Collector {
+func NewCollector(filename string, discovery fbx.FreeboxDiscovery, forceApiVersion int, hostDetails, debug bool) *Collector {
 	result := &Collector{
 		hostDetails: hostDetails,
 	}
@@ -635,14 +635,14 @@ func NewCollector(filename string, discovery fbx.FreeboxDiscovery, hostDetails, 
 	if r, err := os.Open(filename); err == nil {
 		log.Info.Println("Use configuration file", filename)
 		defer r.Close()
-		result.freebox, err = fbx.NewFreeboxConnectionFromConfig(r)
+		result.freebox, err = fbx.NewFreeboxConnectionFromConfig(r, forceApiVersion)
 		if err != nil {
 			panic(err)
 		}
 	} else {
 		log.Info.Println("Could not find the configuration file", filename)
 		newConfig = true
-		result.freebox, err = fbx.NewFreeboxConnectionFromServiceDiscovery(discovery)
+		result.freebox, err = fbx.NewFreeboxConnectionFromServiceDiscovery(discovery, forceApiVersion)
 		if err != nil {
 			panic(err)
 		}

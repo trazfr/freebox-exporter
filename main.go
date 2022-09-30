@@ -29,6 +29,7 @@ func main() {
 	debugPtr := flag.Bool("debug", false, "enable the debug mode")
 	hostDetailsPtr := flag.Bool("hostDetails", false, "get details about the hosts connected to wifi and ethernet. This increases the number of metrics")
 	httpDiscoveryPtr := flag.Bool("httpDiscovery", false, "use http://mafreebox.freebox.fr/api_version to discover the Freebox at the first run (by default: use mDNS)")
+	apiVersionPtr := flag.Int("apiVersion", 0, "Force the API version (by default use the latest one)")
 	listenPtr := flag.String("listen", ":9091", "listen to address")
 	flag.Parse()
 
@@ -52,7 +53,7 @@ func main() {
 		discovery = fbx.FreeboxDiscoveryHTTP
 	}
 
-	collector := NewCollector(args[0], discovery, *hostDetailsPtr, *debugPtr)
+	collector := NewCollector(args[0], discovery, *apiVersionPtr, *hostDetailsPtr, *debugPtr)
 	defer collector.Close()
 
 	prometheus.MustRegister(collector)

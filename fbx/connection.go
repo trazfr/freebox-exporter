@@ -21,9 +21,9 @@ type FreeboxConnection struct {
  * FreeboxConnection
  */
 
-func NewFreeboxConnectionFromServiceDiscovery(discovery FreeboxDiscovery) (*FreeboxConnection, error) {
+func NewFreeboxConnectionFromServiceDiscovery(discovery FreeboxDiscovery, forceApiVersion int) (*FreeboxConnection, error) {
 	client := NewFreeboxHttpClient()
-	apiVersion, err := NewFreeboxAPIVersion(client, discovery)
+	apiVersion, err := NewFreeboxAPIVersion(client, discovery, forceApiVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -46,10 +46,13 @@ func NewFreeboxConnectionFromServiceDiscovery(discovery FreeboxDiscovery) (*Free
 	}, nil
 }
 
-func NewFreeboxConnectionFromConfig(reader io.Reader) (*FreeboxConnection, error) {
+func NewFreeboxConnectionFromConfig(reader io.Reader, forceApiVersion int) (*FreeboxConnection, error) {
 	client := NewFreeboxHttpClient()
 	config := config{}
 	if err := json.NewDecoder(reader).Decode(&config); err != nil {
+		return nil, err
+	}
+	if err := config.APIVersion.setQueryApiVersion(forceApiVersion); err != nil {
 		return nil, err
 	}
 	if !config.APIVersion.IsValid() {

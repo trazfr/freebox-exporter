@@ -20,6 +20,8 @@ type FreeboxAPIVersion struct {
 	APIVersion     string `json:"api_version"`
 	APIBaseURL     string `json:"api_base_url"`
 	DeviceType     string `json:"device_type"`
+
+	QueryApiVersion int `json:"-"`
 }
 
 const (
@@ -36,10 +38,14 @@ const (
 	FreeboxDiscoveryMDNS
 )
 
-func NewFreeboxAPIVersion(client *FreeboxHttpClient, discovery FreeboxDiscovery) (*FreeboxAPIVersion, error) {
+func NewFreeboxAPIVersion(client *FreeboxHttpClient, discovery FreeboxDiscovery, forceApiVersion int) (*FreeboxAPIVersion, error) {
 	result := &FreeboxAPIVersion{}
 
 	if err := result.getDiscovery(discovery)(client); err != nil {
+		return nil, err
+	}
+
+	if err := result.setQueryApiVersion(forceApiVersion); err != nil {
 		return nil, err
 	}
 
@@ -61,26 +67,23 @@ func (f *FreeboxAPIVersion) IsValid() bool {
 		f.DeviceName != "" &&
 		f.APIVersion != "" &&
 		f.APIBaseURL != "" &&
-		f.DeviceType != ""
+		f.DeviceType != "" &&
+		f.QueryApiVersion > 0
 }
 
 func (f *FreeboxAPIVersion) GetURL(path string, miscPath ...interface{}) (string, error) {
 	if !f.IsValid() {
 		return "", errors.New("invalid FreeboxAPIVersion")
 	}
-	versionSplit := strings.Split(f.APIVersion, ".")
-	if len(versionSplit) != 2 {
-		return "", fmt.Errorf("could not decode the api version \"%s\"", f.APIVersion)
-	}
 	args := make([]interface{}, len(miscPath)+4)
 	args[0] = f.APIDomain
 	args[1] = f.HTTPSPort
 	args[2] = f.APIBaseURL
-	args[3] = versionSplit[0]
+	args[3] = f.QueryApiVersion
 	if len(miscPath) > 0 {
 		copy(args[4:], miscPath)
 	}
-	return fmt.Sprintf("https://%s:%d%sv%s/"+path, args...), nil
+	return fmt.Sprintf("https://%s:%d%sv%d/"+path, args...), nil
 }
 
 func (f *FreeboxAPIVersion) getDiscovery(discovery FreeboxDiscovery) func(client *FreeboxHttpClient) error {
@@ -169,4 +172,21 @@ func (f *FreeboxAPIVersion) newFreeboxAPIVersionMDNS(*FreeboxHttpClient) error {
 	}
 
 	return errors.New("MDNS timeout")
+}
+
+func (f *FreeboxAPIVersion) setQueryApiVersion(forceApiVersion int) error {
+	versionSplit := strings.Split(f.APIVersion, ".")
+	if len(versionSplit) != 2 {
+		return fmt.Errorf("could not decode the api version \"%s\"", f.APIVersion)
+	}
+	if apiVersionFromDiscovery, err := strconv.Atoi(versionSplit[0]); err != nil {
+		return err
+	} else if forceApiVersion > apiVersionFromDiscovery {
+		return fmt.Errorf("could use the api version %d which is higher than %d", forceApiVersion, apiVersionFromDiscovery)
+	} else if forceApiVersion > 0 {
+		f.QueryApiVersion = forceApiVersion
+	} else {
+		f.QueryApiVersion = apiVersionFromDiscovery
+	}
+	return nil
 }
