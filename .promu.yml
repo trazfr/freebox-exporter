@@ -1,0 +1,20 @@
+go:
+    # Whenever the Go version is updated here, .circle/config.yml should also
+    # be updated.
+    version: 1.16
+repository:
+    path: github.com/nlamirault/freebox_exporter
+build:
+    binaries:
+      - name: freebox_exporter
+        path: .
+    flags: -a -tags netgo
+    ldflags: |
+        -X github.com/prometheus/common/version.Version={{.Version}}
+        -X github.com/prometheus/common/version.Revision={{.Revision}}
+        -X github.com/prometheus/common/version.Branch={{.Branch}}
+        -X github.com/prometheus/common/version.BuildUser={{user}}@{{host}}
+        -X github.com/prometheus/common/version.BuildDate={{date "20060102-15:04:05"}}
+tarball:
+    files:
+        - LICENSE
