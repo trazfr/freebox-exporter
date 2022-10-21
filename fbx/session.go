@@ -58,7 +58,9 @@ func GetAppToken(client *FreeboxHttpClient, apiVersion *FreeboxAPIVersion) (stri
 		if err != nil {
 			return "", err
 		}
-		client.Get(url, &status)
+		if err := client.Get(url, &status); err != nil {
+			return "", err
+		}
 
 		switch status.Status {
 		case "pending":
@@ -151,7 +153,9 @@ func (f *FreeboxSession) getSessionToken(challenge string) (string, error) {
 	freeboxAuthorize := getFreeboxAuthorize()
 
 	hash := hmac.New(sha1.New, []byte(f.appToken))
-	hash.Write([]byte(challenge))
+	if _, err := hash.Write([]byte(challenge)); err != nil {
+		return "", err
+	}
 	password := hex.EncodeToString(hash.Sum(nil))
 
 	reqStruct := struct {
