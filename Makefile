@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-APP = freebox_exporter
+APP = freebox-exporter
 BANNER = B B O X  E X P O R T E R
 
 # Needs to be defined before including Makefile.common to auto-generate targets
@@ -41,12 +41,12 @@ GO = go
 GOX = gox -osarch="linux/amd64" -osarch="linux/arm64" -osarch="linux/arm" -osarch="darwin/amd64" -osarch="windows/amd64"
 GOX_ARGS = "-output={{.Dir}}-$(VERSION)_{{.OS}}_{{.Arch}}"
 
-MAIN = github.com/nlamirault/freebox_exporter
+MAIN = github.com/nlamirault/freebox-exporter
 
 PACKAGE=$(APP)-$(VERSION)
 ARCHIVE=$(PACKAGE).tar
 
-EXE = $(shell ls freebox_exporter-*)
+EXE = $(shell ls freebox-exporter-*)
 
 NO_COLOR=\033[0m
 OK_COLOR=\033[32;01m
@@ -133,4 +133,4 @@ docker-build: guard-VERSION ## Build Docker image
 
 docker-run: guard-VERSION ## Run the Docker image
 	@echo -e "$(OK_COLOR)Docker run $(APP):$(VERSION)$(NO_COLOR)"
-	@docker run --rm=true $(APP):$(VERSION) /freebox_exporter --help
+	@docker run --rm=true $(APP):$(VERSION) /freebox-exporter --help

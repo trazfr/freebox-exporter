@@ -3,7 +3,7 @@ go:
     # be updated.
     version: 1.16
 repository:
-    path: github.com/nlamirault/freebox_exporter
+    path: github.com/nlamirault/freebox-exporter
 build:
     binaries:
       - name: freebox_exporter
