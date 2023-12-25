@@ -49,7 +49,6 @@ func NewFreeboxHttpClient() *FreeboxHttpClient {
 
 func (f *FreeboxHttpClient) Get(url string, out interface{}, callbacks ...FreeboxHttpClientCallback) error {
 	req, err := http.NewRequestWithContext(f.ctx, "GET", url, nil)
-
 	if err != nil {
 		return err
 	}
@@ -114,6 +113,12 @@ func (f *FreeboxHttpClient) do(req *http.Request, out interface{}) error {
 	}{
 		Result: out,
 	}
+
+	// Workaround for Switch Status API: mac_list is supposed to be an array. However, it is sometimes
+	// missing (which is fine), or an empty object `{}`, which causes json.Unmarshal to fail as it is
+	// expeting an array. This seems to be happening with sfp_lan.
+	body = bytes.Replace(body, []byte(`"mac_list":{}`), []byte(`"mac_list":[]`), 1)
+
 	if err := json.Unmarshal(body, &result); err != nil {
 		return err
 	}
