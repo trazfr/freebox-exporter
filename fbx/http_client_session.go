@@ -4,7 +4,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/hex"
-	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -19,7 +18,7 @@ type sessionInfo struct {
 
 // FreeboxSession represents all the variables used in a session
 type FreeboxSession struct {
-	client             *FreeboxHttpClient
+	client             FreeboxHttpClient
 	getSessionTokenURL string
 	getChallengeURL    string
 
@@ -31,48 +30,7 @@ type FreeboxSession struct {
 	oldSessionInfo         *sessionInfo // avoid deleting the sessionInfo too quickly
 }
 
-func GetAppToken(client *FreeboxHttpClient, api *FreeboxAPI) (string, error) {
-	reqStruct := getFreeboxAuthorize()
-	postResponse := struct {
-		AppToken string `json:"app_token"`
-		TrackID  int64  `json:"track_id"`
-	}{}
-
-	url, err := api.GetURL("login/authorize/")
-	if err != nil {
-		return "", err
-	}
-
-	if err := client.Post(url, reqStruct, &postResponse); err != nil {
-		return "", err
-	}
-
-	counter := 0
-	for {
-		counter++
-		status := struct {
-			Status string `json:"status"`
-		}{}
-
-		url, err := api.GetURL("login/authorize/%d", postResponse.TrackID)
-		if err != nil {
-			return "", err
-		}
-		client.Get(url, &status)
-
-		switch status.Status {
-		case "pending":
-			log.Info.Println(counter, "Please accept the login on the Freebox Server")
-			time.Sleep(10 * time.Second)
-		case "granted":
-			return postResponse.AppToken, nil
-		default:
-			return "", fmt.Errorf("access is %s", status.Status)
-		}
-	}
-}
-
-func NewFreeboxSession(appToken string, client *FreeboxHttpClient, api *FreeboxAPI) (*FreeboxSession, error) {
+func NewFreeboxSession(appToken string, client FreeboxHttpClient, api *FreeboxAPI) (FreeboxHttpClient, error) {
 	getChallengeURL, err := api.GetURL("login/")
 	if err != nil {
 		return nil, err
@@ -90,23 +48,50 @@ func NewFreeboxSession(appToken string, client *FreeboxHttpClient, api *FreeboxA
 
 		appToken: appToken,
 	}
-	if err := result.Refresh(); err != nil {
+	if err := result.refresh(); err != nil {
 		return nil, err
 	}
 	return result, nil
 }
 
-func (f *FreeboxSession) IsValid() bool {
-	return f.sessionInfo != nil
+func (f *FreeboxSession) Get(url string, out interface{}, callbacks ...FreeboxHttpClientCallback) error {
+	action := func() error {
+		return f.client.Get(url, out, f.addHeader)
+	}
+	return f.do(action)
 }
 
-func (f *FreeboxSession) AddHeader(req *http.Request) {
+func (f *FreeboxSession) Post(url string, in interface{}, out interface{}, callbacks ...FreeboxHttpClientCallback) error {
+	action := func() error {
+		return f.client.Post(url, in, out, f.addHeader)
+	}
+	return f.do(action)
+}
+
+func (f *FreeboxSession) do(action func() error) error {
+	if err := action(); err != nil {
+		switch err {
+		case errAuthRequired, errInvalidToken:
+			err := f.refresh()
+			if err != nil {
+				return err
+			}
+			return action()
+		default:
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (f *FreeboxSession) addHeader(req *http.Request) {
 	if f != nil && f.sessionInfo != nil {
 		req.Header.Set("X-Fbx-App-Auth", f.sessionInfo.sessionToken)
 	}
 }
 
-func (f *FreeboxSession) Refresh() error {
+func (f *FreeboxSession) refresh() error {
 	f.sessionTokenLock.Lock()
 	defer f.sessionTokenLock.Unlock()
 

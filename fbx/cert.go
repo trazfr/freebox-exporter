@@ -3,7 +3,13 @@ package fbx
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"net/http"
+	"time"
 )
+
+type HttpClientInternal interface {
+	Do(req *http.Request) (*http.Response, error)
+}
 
 const (
 	// https://dev.freebox.fr/sdk/os/#https-access
@@ -55,4 +61,15 @@ func newTLSConfig() *tls.Config {
 	}
 	tlsConfig.BuildNameToCertificate()
 	return tlsConfig
+}
+
+func httpClient() HttpClientInternal {
+	return &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig:     newTLSConfig(),
+			MaxIdleConnsPerHost: 10,
+			IdleConnTimeout:     10 * time.Minute,
+		},
+		Timeout: 10 * time.Second,
+	}
 }

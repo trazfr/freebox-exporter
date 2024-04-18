@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -45,7 +46,7 @@ const (
  * FreeboxAPI
  */
 
-func NewFreeboxAPI(client *FreeboxHttpClient, discovery FreeboxDiscovery, forceApiVersion int) (*FreeboxAPI, error) {
+func NewFreeboxAPI(client HttpClientInternal, discovery FreeboxDiscovery, forceApiVersion int) (*FreeboxAPI, error) {
 	result := &FreeboxAPI{}
 	var err error
 	result.apiVersion, err = getDiscovery(discovery)(client)
@@ -131,8 +132,8 @@ func (f *FreeboxAPIVersion) getQueryApiVersion(forceApiVersion int) (int, error)
  * misc
  */
 
-func getDiscovery(discovery FreeboxDiscovery) func(client *FreeboxHttpClient) (*FreeboxAPIVersion, error) {
-	function := func(*FreeboxHttpClient) (*FreeboxAPIVersion, error) {
+func getDiscovery(discovery FreeboxDiscovery) func(client HttpClientInternal) (*FreeboxAPIVersion, error) {
+	function := func(HttpClientInternal) (*FreeboxAPIVersion, error) {
 		return nil, errors.New("wrong discovery argument")
 	}
 
@@ -147,14 +148,20 @@ func getDiscovery(discovery FreeboxDiscovery) func(client *FreeboxHttpClient) (*
 	return function
 }
 
-func newFreeboxAPIVersionHTTP(client *FreeboxHttpClient) (*FreeboxAPIVersion, error) {
+func newFreeboxAPIVersionHTTP(client HttpClientInternal) (*FreeboxAPIVersion, error) {
 	log.Info.Println("Freebox discovery: GET", apiVersionURL)
 
 	// HTTP GET api version
-	r, err := client.client.Get(apiVersionURL)
+	req, err := http.NewRequest("GET", apiVersionURL, nil)
 	if err != nil {
 		return nil, err
 	}
+
+	r, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
 	defer r.Body.Close()
 
 	f := &FreeboxAPIVersion{}
@@ -162,7 +169,7 @@ func newFreeboxAPIVersionHTTP(client *FreeboxHttpClient) (*FreeboxAPIVersion, er
 	return f, err
 }
 
-func newFreeboxAPIVersionMDNS(*FreeboxHttpClient) (*FreeboxAPIVersion, error) {
+func newFreeboxAPIVersionMDNS(HttpClientInternal) (*FreeboxAPIVersion, error) {
 	log.Info.Println("Freebox discovery: mDNS")
 	entries := make(chan *mdns.ServiceEntry, 4)
 

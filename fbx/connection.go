@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"time"
+
+	"github.com/trazfr/freebox-exporter/log"
 )
 
 type config struct {
@@ -12,10 +15,9 @@ type config struct {
 }
 
 type FreeboxConnection struct {
-	api     *FreeboxAPI
-	client  *FreeboxHttpClient
-	session *FreeboxSession
-	config  config
+	api    *FreeboxAPI
+	client FreeboxHttpClient
+	config config
 }
 
 /*
@@ -23,24 +25,24 @@ type FreeboxConnection struct {
  */
 
 func NewFreeboxConnectionFromServiceDiscovery(discovery FreeboxDiscovery, forceApiVersion int) (*FreeboxConnection, error) {
-	client := NewFreeboxHttpClient()
-	api, err := NewFreeboxAPI(client, discovery, forceApiVersion)
+	clientInternal := httpClient()
+	clientBase := NewFreeboxHttpClientBase(clientInternal)
+	api, err := NewFreeboxAPI(clientInternal, discovery, forceApiVersion)
 	if err != nil {
 		return nil, err
 	}
-	appToken, err := GetAppToken(client, api)
+	appToken, err := getAppToken(clientBase, api)
 	if err != nil {
 		return nil, err
 	}
-	session, err := NewFreeboxSession(appToken, client, api)
+	client, err := NewFreeboxSession(appToken, clientBase, api)
 	if err != nil {
 		return nil, err
 	}
 
 	return &FreeboxConnection{
-		api:     api,
-		client:  client,
-		session: session,
+		api:    api,
+		client: client,
 		config: config{
 			APIVersion: api.apiVersion,
 			AppToken:   appToken,
@@ -49,7 +51,7 @@ func NewFreeboxConnectionFromServiceDiscovery(discovery FreeboxDiscovery, forceA
 }
 
 func NewFreeboxConnectionFromConfig(reader io.Reader, forceApiVersion int) (*FreeboxConnection, error) {
-	client := NewFreeboxHttpClient()
+	client := NewFreeboxHttpClientBase(httpClient())
 	config := config{}
 	if err := json.NewDecoder(reader).Decode(&config); err != nil {
 		return nil, err
@@ -75,10 +77,9 @@ func NewFreeboxConnectionFromConfig(reader io.Reader, forceApiVersion int) (*Fre
 	}
 
 	return &FreeboxConnection{
-		api:     api,
-		client:  client,
-		session: session,
-		config:  config,
+		api:    api,
+		client: session,
+		config: config,
 	}, nil
 }
 
@@ -87,33 +88,11 @@ func (f *FreeboxConnection) WriteConfig(writer io.Writer) error {
 }
 
 func (f *FreeboxConnection) get(path string, out interface{}) error {
-	return f.getInternal(path, out, false)
-}
-
-func (f *FreeboxConnection) getInternal(path string, out interface{}, retry bool) error {
 	url, err := f.api.GetURL(path)
 	if err != nil {
 		return err
 	}
-
-	if err := f.client.Get(url, out, f.session.AddHeader); err != nil {
-		if retry {
-			return err
-		}
-
-		switch err {
-		case errAuthRequired, errInvalidToken:
-			err := f.session.Refresh()
-			if err != nil {
-				return err
-			}
-			return f.getInternal(path, out, true)
-		default:
-			return err
-		}
-	}
-
-	return nil
+	return f.client.Get(url, out)
 }
 
 func (f *FreeboxConnection) Close() error {
@@ -121,5 +100,46 @@ func (f *FreeboxConnection) Close() error {
 	if err != nil {
 		return err
 	}
-	return f.client.Post(url, nil, nil, f.session.AddHeader)
+	return f.client.Post(url, nil, nil)
+}
+
+func getAppToken(client FreeboxHttpClient, api *FreeboxAPI) (string, error) {
+	reqStruct := getFreeboxAuthorize()
+	postResponse := struct {
+		AppToken string `json:"app_token"`
+		TrackID  int64  `json:"track_id"`
+	}{}
+
+	url, err := api.GetURL("login/authorize/")
+	if err != nil {
+		return "", err
+	}
+
+	if err := client.Post(url, reqStruct, &postResponse); err != nil {
+		return "", err
+	}
+
+	counter := 0
+	for {
+		counter++
+		status := struct {
+			Status string `json:"status"`
+		}{}
+
+		url, err := api.GetURL("login/authorize/%d", postResponse.TrackID)
+		if err != nil {
+			return "", err
+		}
+		client.Get(url, &status)
+
+		switch status.Status {
+		case "pending":
+			log.Info.Println(counter, "Please accept the login on the Freebox Server")
+			time.Sleep(10 * time.Second)
+		case "granted":
+			return postResponse.AppToken, nil
+		default:
+			return "", fmt.Errorf("access is %s", status.Status)
+		}
+	}
 }
