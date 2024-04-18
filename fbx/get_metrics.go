@@ -292,20 +292,31 @@ type MetricsFreeboxLanHost struct {
 	} `json:"l3connectivities"`
 }
 
-// GetApiVersion get the connection info
-func (f *FreeboxConnection) GetAPI() *FreeboxAPI {
-	return f.api
+type FreeboxClientV5 struct {
+	queryVersion int
+	conn         *FreeboxConnection
+}
+
+func NewFreeboxClient(conn *FreeboxConnection, queryVersion int) *FreeboxClientV5 {
+	return &FreeboxClientV5{
+		queryVersion: queryVersion,
+		conn:         conn,
+	}
+}
+
+func (f *FreeboxClientV5) Close() error {
+	return f.conn.Logout(f.queryVersion)
 }
 
 // GetMetricsSystem http://mafreebox.freebox.fr/api/v5/system/
-func (f *FreeboxConnection) GetMetricsSystem() (*MetricsFreeboxSystem, error) {
+func (f *FreeboxClientV5) GetMetricsSystem() (*MetricsFreeboxSystem, error) {
 	res := new(MetricsFreeboxSystem)
 	err := f.get("system/", res)
 	return res, err
 }
 
 // GetMetricsConnection http://mafreebox.freebox.fr/api/v5/connection/
-func (f *FreeboxConnection) GetMetricsConnection() (*MetricsFreeboxConnectionAll, error) {
+func (f *FreeboxClientV5) GetMetricsConnection() (*MetricsFreeboxConnectionAll, error) {
 	result := new(MetricsFreeboxConnectionAll)
 	if err := f.get("connection/", result); err != nil {
 		return nil, err
@@ -334,7 +345,7 @@ func (f *FreeboxConnection) GetMetricsConnection() (*MetricsFreeboxConnectionAll
 }
 
 // GetMetricsSwitch http://mafreebox.freebox.fr/api/v5/switch/status/
-func (f *FreeboxConnection) GetMetricsSwitch() (*MetricsFreeboxSwitch, error) {
+func (f *FreeboxClientV5) GetMetricsSwitch() (*MetricsFreeboxSwitch, error) {
 	res := new(MetricsFreeboxSwitch)
 
 	if err := f.get("switch/status/", &res.Ports); err != nil {
@@ -363,7 +374,7 @@ func (f *FreeboxConnection) GetMetricsSwitch() (*MetricsFreeboxSwitch, error) {
 }
 
 // GetMetricsWifi https://dev.freebox.fr/sdk/os/wifi/
-func (f *FreeboxConnection) GetMetricsWifi() (*MetricsFreeboxWifi, error) {
+func (f *FreeboxClientV5) GetMetricsWifi() (*MetricsFreeboxWifi, error) {
 	res := new(MetricsFreeboxWifi)
 
 	wg := sync.WaitGroup{}
@@ -420,7 +431,7 @@ func (f *FreeboxConnection) GetMetricsWifi() (*MetricsFreeboxWifi, error) {
 }
 
 // GetMetricsLan https://dev.freebox.fr/sdk/os/lan/
-func (f *FreeboxConnection) GetMetricsLan() (*MetricsFreeboxLan, error) {
+func (f *FreeboxClientV5) GetMetricsLan() (*MetricsFreeboxLan, error) {
 	interfaces := []*freeboxLanInterfaces{}
 	if err := f.get("lan/browser/interfaces/", &interfaces); err != nil {
 		return nil, err
@@ -457,4 +468,8 @@ func (f *FreeboxConnection) GetMetricsLan() (*MetricsFreeboxLan, error) {
 	}
 
 	return res, nil
+}
+
+func (f *FreeboxClientV5) get(path string, out interface{}) error {
+	return f.conn.Get(f.queryVersion, path, out)
 }

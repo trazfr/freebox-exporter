@@ -12,11 +12,6 @@ import (
 	"github.com/trazfr/freebox-exporter/log"
 )
 
-type FreeboxAPI struct {
-	apiVersion   *FreeboxAPIVersion
-	queryVersion int
-}
-
 type FreeboxAPIVersion struct {
 	APIDomain      string `json:"api_domain"`
 	UID            string `json:"uid"`
@@ -43,60 +38,27 @@ const (
 )
 
 /*
- * FreeboxAPI
+ * FreeboxAPIVersion
  */
 
-func NewFreeboxAPI(client HttpClientInternal, discovery FreeboxDiscovery, forceApiVersion int) (*FreeboxAPI, error) {
-	result := &FreeboxAPI{}
-	var err error
-	result.apiVersion, err = getDiscovery(discovery)(client)
-
-	if err != nil {
-		return nil, err
-	}
-
-	result.queryVersion, err = result.apiVersion.getQueryApiVersion(forceApiVersion)
-	if err != nil {
-		return nil, err
-	}
-
-	if !result.IsValid() {
-		return nil, errors.New("could not get the API version")
-	}
-	log.Debug.Println("APIVersion", result)
-	return result, nil
+func NewFreeboxAPIVersion(client HttpClientInternal, discovery FreeboxDiscovery) (*FreeboxAPIVersion, error) {
+	return getDiscovery(discovery)(client)
 }
 
-func (f *FreeboxAPI) IsValid() bool {
-	if f == nil {
-		return false
-	}
-	return f.apiVersion.IsValid() &&
-		f.queryVersion > 0
-}
-
-func (f *FreeboxAPI) GetURL(path string, miscPath ...interface{}) (string, error) {
+func (f *FreeboxAPIVersion) GetURL(queryVersion int, path string, miscPath ...interface{}) (string, error) {
 	if !f.IsValid() {
 		return "", errors.New("invalid FreeboxAPIVersion")
 	}
 	args := make([]interface{}, len(miscPath)+4)
-	args[0] = f.apiVersion.APIDomain
-	args[1] = f.apiVersion.HTTPSPort
-	args[2] = f.apiVersion.APIBaseURL
-	args[3] = f.queryVersion
+	args[0] = f.APIDomain
+	args[1] = f.HTTPSPort
+	args[2] = f.APIBaseURL
+	args[3] = queryVersion
 	if len(miscPath) > 0 {
 		copy(args[4:], miscPath)
 	}
 	return fmt.Sprintf("https://%s:%d%sv%d/"+path, args...), nil
 }
-
-func (f *FreeboxAPI) GetVersion() string {
-	return f.apiVersion.APIVersion
-}
-
-/*
- * FreeboxAPIVersion
- */
 
 func (f *FreeboxAPIVersion) IsValid() bool {
 	if f == nil {
@@ -112,7 +74,7 @@ func (f *FreeboxAPIVersion) IsValid() bool {
 		f.DeviceType != ""
 }
 
-func (f *FreeboxAPIVersion) getQueryApiVersion(forceApiVersion int) (int, error) {
+func (f *FreeboxAPIVersion) GetQueryApiVersion(forceApiVersion int) (int, error) {
 	versionSplit := strings.Split(f.APIVersion, ".")
 	if len(versionSplit) != 2 {
 		return 0, fmt.Errorf("could not decode the api version \"%s\"", f.APIVersion)

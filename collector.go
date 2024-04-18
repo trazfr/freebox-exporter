@@ -172,8 +172,10 @@ var (
 
 // Collector is the prometheus collector for the freebox exporter
 type Collector struct {
-	hostDetails bool
-	freebox     *fbx.FreeboxConnection
+	hostDetails       bool
+	freeboxApiVersion string
+	url               string
+	freebox           *fbx.FreeboxClientV5
 }
 
 func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
@@ -508,11 +510,9 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 
 	wg.Wait()
 
-	api := c.freebox.GetAPI()
-	url, _ := api.GetURL("")
 	ch <- prometheus.MustNewConstMetric(promDescExporterInfo, prometheus.GaugeValue, c.toFloat(getMetricSuccessful),
-		url,
-		api.GetVersion())
+		c.url,
+		c.freeboxApiVersion)
 
 	ch <- prometheus.MustNewConstMetric(promDescInfo, prometheus.GaugeValue, 1,
 		firmwareVersion,
@@ -626,21 +626,19 @@ func (c *Collector) toFloat(b bool) float64 {
 }
 
 func NewCollector(filename string, discovery fbx.FreeboxDiscovery, forceApiVersion int, hostDetails, debug bool) *Collector {
-	result := &Collector{
-		hostDetails: hostDetails,
-	}
 	newConfig := false
+	var conn *fbx.FreeboxConnection
 	if r, err := os.Open(filename); err == nil {
 		log.Info.Println("Use configuration file", filename)
 		defer r.Close()
-		result.freebox, err = fbx.NewFreeboxConnectionFromConfig(r, forceApiVersion)
+		conn, err = fbx.NewFreeboxConnectionFromConfig(r, forceApiVersion)
 		if err != nil {
 			panic(err)
 		}
 	} else {
 		log.Info.Println("Could not find the configuration file", filename)
 		newConfig = true
-		result.freebox, err = fbx.NewFreeboxConnectionFromServiceDiscovery(discovery, forceApiVersion)
+		conn, err = fbx.NewFreeboxConnectionFromServiceDiscovery(discovery, forceApiVersion)
 		if err != nil {
 			panic(err)
 		}
@@ -653,11 +651,26 @@ func NewCollector(filename string, discovery fbx.FreeboxDiscovery, forceApiVersi
 			panic(err)
 		}
 		defer w.Close()
-		if err := result.freebox.WriteConfig(w); err != nil {
+		if err := conn.WriteConfig(w); err != nil {
 			panic(err)
 		}
 	}
-	return result
+	apiVersion := conn.GetAPIVersion()
+	queryVersion, err := apiVersion.GetQueryApiVersion(forceApiVersion)
+	if err != nil {
+		panic(err)
+	}
+	url, err := apiVersion.GetURL(queryVersion, "")
+	if err != nil {
+		panic(err)
+	}
+
+	return &Collector{
+		hostDetails:       hostDetails,
+		freeboxApiVersion: apiVersion.APIVersion,
+		url:               url,
+		freebox:           fbx.NewFreeboxClient(conn, queryVersion),
+	}
 }
 
 func (c *Collector) Close() {

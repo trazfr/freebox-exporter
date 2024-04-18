@@ -30,13 +30,13 @@ type FreeboxSession struct {
 	oldSessionInfo         *sessionInfo // avoid deleting the sessionInfo too quickly
 }
 
-func NewFreeboxSession(appToken string, client FreeboxHttpClient, api *FreeboxAPI) (FreeboxHttpClient, error) {
-	getChallengeURL, err := api.GetURL("login/")
+func NewFreeboxSession(appToken string, client FreeboxHttpClient, apiVersion *FreeboxAPIVersion, queryVersion int) (FreeboxHttpClient, error) {
+	getChallengeURL, err := apiVersion.GetURL(queryVersion, "login/")
 	if err != nil {
 		return nil, err
 	}
 
-	getSessionTokenURL, err := api.GetURL("login/session/")
+	getSessionTokenURL, err := apiVersion.GetURL(queryVersion, "login/session/")
 	if err != nil {
 		return nil, err
 	}
