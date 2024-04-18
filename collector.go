@@ -508,11 +508,11 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 
 	wg.Wait()
 
-	apiVersion := c.freebox.GetAPIVersion()
-	url, _ := apiVersion.GetURL("")
+	api := c.freebox.GetAPI()
+	url, _ := api.GetURL("")
 	ch <- prometheus.MustNewConstMetric(promDescExporterInfo, prometheus.GaugeValue, c.toFloat(getMetricSuccessful),
 		url,
-		apiVersion.APIVersion)
+		api.GetVersion())
 
 	ch <- prometheus.MustNewConstMetric(promDescInfo, prometheus.GaugeValue, 1,
 		firmwareVersion,

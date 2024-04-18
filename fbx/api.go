@@ -20,8 +20,11 @@ type FreeboxAPIVersion struct {
 	APIVersion     string `json:"api_version"`
 	APIBaseURL     string `json:"api_base_url"`
 	DeviceType     string `json:"device_type"`
+}
 
-	QueryApiVersion int `json:"-"`
+type FreeboxAPI struct {
+	apiVersion   *FreeboxAPIVersion
+	queryVersion int
 }
 
 const (
@@ -38,14 +41,17 @@ const (
 	FreeboxDiscoveryMDNS
 )
 
-func NewFreeboxAPIVersion(client *FreeboxHttpClient, discovery FreeboxDiscovery, forceApiVersion int) (*FreeboxAPIVersion, error) {
-	result := &FreeboxAPIVersion{}
+func NewFreeboxAPI(client *FreeboxHttpClient, discovery FreeboxDiscovery, forceApiVersion int) (*FreeboxAPI, error) {
+	result := &FreeboxAPI{}
+	var err error
+	result.apiVersion, err = getDiscovery(discovery)(client)
 
-	if err := result.getDiscovery(discovery)(client); err != nil {
+	if err != nil {
 		return nil, err
 	}
 
-	if err := result.setQueryApiVersion(forceApiVersion); err != nil {
+	result.queryVersion, err = result.apiVersion.getQueryApiVersion(forceApiVersion)
+	if err != nil {
 		return nil, err
 	}
 
@@ -54,6 +60,14 @@ func NewFreeboxAPIVersion(client *FreeboxHttpClient, discovery FreeboxDiscovery,
 	}
 	log.Debug.Println("APIVersion", result)
 	return result, nil
+}
+
+func (f *FreeboxAPI) IsValid() bool {
+	if f == nil {
+		return false
+	}
+	return f.apiVersion.IsValid() &&
+		f.queryVersion > 0
 }
 
 func (f *FreeboxAPIVersion) IsValid() bool {
@@ -67,58 +81,60 @@ func (f *FreeboxAPIVersion) IsValid() bool {
 		f.DeviceName != "" &&
 		f.APIVersion != "" &&
 		f.APIBaseURL != "" &&
-		f.DeviceType != "" &&
-		f.QueryApiVersion > 0
+		f.DeviceType != ""
 }
 
-func (f *FreeboxAPIVersion) GetURL(path string, miscPath ...interface{}) (string, error) {
+func (f *FreeboxAPI) GetURL(path string, miscPath ...interface{}) (string, error) {
 	if !f.IsValid() {
 		return "", errors.New("invalid FreeboxAPIVersion")
 	}
 	args := make([]interface{}, len(miscPath)+4)
-	args[0] = f.APIDomain
-	args[1] = f.HTTPSPort
-	args[2] = f.APIBaseURL
-	args[3] = f.QueryApiVersion
+	args[0] = f.apiVersion.APIDomain
+	args[1] = f.apiVersion.HTTPSPort
+	args[2] = f.apiVersion.APIBaseURL
+	args[3] = f.queryVersion
 	if len(miscPath) > 0 {
 		copy(args[4:], miscPath)
 	}
 	return fmt.Sprintf("https://%s:%d%sv%d/"+path, args...), nil
 }
 
-func (f *FreeboxAPIVersion) getDiscovery(discovery FreeboxDiscovery) func(client *FreeboxHttpClient) error {
-	function := func(*FreeboxHttpClient) error {
-		return errors.New("wrong discovery argument")
+func (f *FreeboxAPI) GetVersion() string {
+	return f.apiVersion.APIVersion
+}
+
+func getDiscovery(discovery FreeboxDiscovery) func(client *FreeboxHttpClient) (*FreeboxAPIVersion, error) {
+	function := func(*FreeboxHttpClient) (*FreeboxAPIVersion, error) {
+		return nil, errors.New("wrong discovery argument")
 	}
 
 	switch discovery {
 	case FreeboxDiscoveryHTTP:
-		function = f.newFreeboxAPIVersionHTTP
+		function = newFreeboxAPIVersionHTTP
 	case FreeboxDiscoveryMDNS:
-		function = f.newFreeboxAPIVersionMDNS
+		function = newFreeboxAPIVersionMDNS
 	default:
 	}
 
 	return function
 }
 
-func (f *FreeboxAPIVersion) newFreeboxAPIVersionHTTP(client *FreeboxHttpClient) error {
+func newFreeboxAPIVersionHTTP(client *FreeboxHttpClient) (*FreeboxAPIVersion, error) {
 	log.Info.Println("Freebox discovery: GET", apiVersionURL)
 
 	// HTTP GET api version
 	r, err := client.client.Get(apiVersionURL)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer r.Body.Close()
 
-	if err := json.NewDecoder(r.Body).Decode(f); err != nil {
-		return err
-	}
-	return nil
+	f := &FreeboxAPIVersion{}
+	err = json.NewDecoder(r.Body).Decode(f)
+	return f, err
 }
 
-func (f *FreeboxAPIVersion) newFreeboxAPIVersionMDNS(*FreeboxHttpClient) error {
+func newFreeboxAPIVersionMDNS(*FreeboxHttpClient) (*FreeboxAPIVersion, error) {
 	log.Info.Println("Freebox discovery: mDNS")
 	entries := make(chan *mdns.ServiceEntry, 4)
 
@@ -139,7 +155,7 @@ func (f *FreeboxAPIVersion) newFreeboxAPIVersionMDNS(*FreeboxHttpClient) error {
 		}
 		deviceName = strings.ReplaceAll(deviceName, "\\", "")
 
-		*f = FreeboxAPIVersion{
+		f := &FreeboxAPIVersion{
 			DeviceName: deviceName,
 		}
 		for i := range entry.InfoFields {
@@ -167,26 +183,25 @@ func (f *FreeboxAPIVersion) newFreeboxAPIVersionMDNS(*FreeboxHttpClient) error {
 			}
 		}
 		if f.IsValid() {
-			return nil
+			return f, nil
 		}
 	}
 
-	return errors.New("MDNS timeout")
+	return nil, errors.New("MDNS timeout")
 }
 
-func (f *FreeboxAPIVersion) setQueryApiVersion(forceApiVersion int) error {
+func (f *FreeboxAPIVersion) getQueryApiVersion(forceApiVersion int) (int, error) {
 	versionSplit := strings.Split(f.APIVersion, ".")
 	if len(versionSplit) != 2 {
-		return fmt.Errorf("could not decode the api version \"%s\"", f.APIVersion)
+		return 0, fmt.Errorf("could not decode the api version \"%s\"", f.APIVersion)
 	}
 	if apiVersionFromDiscovery, err := strconv.Atoi(versionSplit[0]); err != nil {
-		return err
+		return 0, err
 	} else if forceApiVersion > apiVersionFromDiscovery {
-		return fmt.Errorf("could use the api version %d which is higher than %d", forceApiVersion, apiVersionFromDiscovery)
+		return 0, fmt.Errorf("could use the api version %d which is higher than %d", forceApiVersion, apiVersionFromDiscovery)
 	} else if forceApiVersion > 0 {
-		f.QueryApiVersion = forceApiVersion
+		return forceApiVersion, nil
 	} else {
-		f.QueryApiVersion = apiVersionFromDiscovery
+		return apiVersionFromDiscovery, nil
 	}
-	return nil
 }

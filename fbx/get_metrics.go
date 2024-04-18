@@ -293,8 +293,8 @@ type MetricsFreeboxLanHost struct {
 }
 
 // GetApiVersion get the connection info
-func (f *FreeboxConnection) GetAPIVersion() FreeboxAPIVersion {
-	return *f.config.APIVersion
+func (f *FreeboxConnection) GetAPI() *FreeboxAPI {
+	return f.api
 }
 
 // GetMetricsSystem http://mafreebox.freebox.fr/api/v5/system/

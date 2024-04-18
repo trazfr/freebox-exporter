@@ -31,14 +31,14 @@ type FreeboxSession struct {
 	oldSessionInfo         *sessionInfo // avoid deleting the sessionInfo too quickly
 }
 
-func GetAppToken(client *FreeboxHttpClient, apiVersion *FreeboxAPIVersion) (string, error) {
+func GetAppToken(client *FreeboxHttpClient, api *FreeboxAPI) (string, error) {
 	reqStruct := getFreeboxAuthorize()
 	postResponse := struct {
 		AppToken string `json:"app_token"`
 		TrackID  int64  `json:"track_id"`
 	}{}
 
-	url, err := apiVersion.GetURL("login/authorize/")
+	url, err := api.GetURL("login/authorize/")
 	if err != nil {
 		return "", err
 	}
@@ -54,7 +54,7 @@ func GetAppToken(client *FreeboxHttpClient, apiVersion *FreeboxAPIVersion) (stri
 			Status string `json:"status"`
 		}{}
 
-		url, err := apiVersion.GetURL("login/authorize/%d", postResponse.TrackID)
+		url, err := api.GetURL("login/authorize/%d", postResponse.TrackID)
 		if err != nil {
 			return "", err
 		}
@@ -72,13 +72,13 @@ func GetAppToken(client *FreeboxHttpClient, apiVersion *FreeboxAPIVersion) (stri
 	}
 }
 
-func NewFreeboxSession(appToken string, client *FreeboxHttpClient, apiVersion *FreeboxAPIVersion) (*FreeboxSession, error) {
-	getChallengeURL, err := apiVersion.GetURL("login/")
+func NewFreeboxSession(appToken string, client *FreeboxHttpClient, api *FreeboxAPI) (*FreeboxSession, error) {
+	getChallengeURL, err := api.GetURL("login/")
 	if err != nil {
 		return nil, err
 	}
 
-	getSessionTokenURL, err := apiVersion.GetURL("login/session/")
+	getSessionTokenURL, err := api.GetURL("login/session/")
 	if err != nil {
 		return nil, err
 	}

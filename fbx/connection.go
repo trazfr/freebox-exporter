@@ -12,6 +12,7 @@ type config struct {
 }
 
 type FreeboxConnection struct {
+	api     *FreeboxAPI
 	client  *FreeboxHttpClient
 	session *FreeboxSession
 	config  config
@@ -23,15 +24,15 @@ type FreeboxConnection struct {
 
 func NewFreeboxConnectionFromServiceDiscovery(discovery FreeboxDiscovery, forceApiVersion int) (*FreeboxConnection, error) {
 	client := NewFreeboxHttpClient()
-	apiVersion, err := NewFreeboxAPIVersion(client, discovery, forceApiVersion)
+	api, err := NewFreeboxAPI(client, discovery, forceApiVersion)
 	if err != nil {
 		return nil, err
 	}
-	appToken, err := GetAppToken(client, apiVersion)
+	appToken, err := GetAppToken(client, api)
 	if err != nil {
 		return nil, err
 	}
-	session, err := NewFreeboxSession(appToken, client, apiVersion)
+	session, err := NewFreeboxSession(appToken, client, api)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +41,7 @@ func NewFreeboxConnectionFromServiceDiscovery(discovery FreeboxDiscovery, forceA
 		client:  client,
 		session: session,
 		config: config{
-			APIVersion: apiVersion,
+			APIVersion: api.apiVersion,
 			AppToken:   appToken,
 		},
 	}, nil
@@ -52,7 +53,8 @@ func NewFreeboxConnectionFromConfig(reader io.Reader, forceApiVersion int) (*Fre
 	if err := json.NewDecoder(reader).Decode(&config); err != nil {
 		return nil, err
 	}
-	if err := config.APIVersion.setQueryApiVersion(forceApiVersion); err != nil {
+	queryVersion, err := config.APIVersion.getQueryApiVersion(forceApiVersion)
+	if err != nil {
 		return nil, err
 	}
 	if !config.APIVersion.IsValid() {
@@ -62,12 +64,17 @@ func NewFreeboxConnectionFromConfig(reader io.Reader, forceApiVersion int) (*Fre
 		return nil, fmt.Errorf("invalid app_token: %s", config.AppToken)
 	}
 
-	session, err := NewFreeboxSession(config.AppToken, client, config.APIVersion)
+	api := &FreeboxAPI{
+		apiVersion:   config.APIVersion,
+		queryVersion: queryVersion,
+	}
+	session, err := NewFreeboxSession(config.AppToken, client, api)
 	if err != nil {
 		return nil, err
 	}
 
 	return &FreeboxConnection{
+		api:     api,
 		client:  client,
 		session: session,
 		config:  config,
@@ -83,7 +90,7 @@ func (f *FreeboxConnection) get(path string, out interface{}) error {
 }
 
 func (f *FreeboxConnection) getInternal(path string, out interface{}, retry bool) error {
-	url, err := f.config.APIVersion.GetURL(path)
+	url, err := f.api.GetURL(path)
 	if err != nil {
 		return err
 	}
@@ -109,7 +116,7 @@ func (f *FreeboxConnection) getInternal(path string, out interface{}, retry bool
 }
 
 func (f *FreeboxConnection) Close() error {
-	url, err := f.config.APIVersion.GetURL("login/logout/")
+	url, err := f.api.GetURL("login/logout/")
 	if err != nil {
 		return err
 	}
