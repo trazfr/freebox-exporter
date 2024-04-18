@@ -38,6 +38,7 @@ func NewFreeboxConnectionFromServiceDiscovery(discovery FreeboxDiscovery, forceA
 	}
 
 	return &FreeboxConnection{
+		api:     api,
 		client:  client,
 		session: session,
 		config: config{

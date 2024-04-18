@@ -11,6 +11,11 @@ import (
 	"github.com/trazfr/freebox-exporter/log"
 )
 
+type FreeboxAPI struct {
+	apiVersion   *FreeboxAPIVersion
+	queryVersion int
+}
+
 type FreeboxAPIVersion struct {
 	APIDomain      string `json:"api_domain"`
 	UID            string `json:"uid"`
@@ -20,11 +25,6 @@ type FreeboxAPIVersion struct {
 	APIVersion     string `json:"api_version"`
 	APIBaseURL     string `json:"api_base_url"`
 	DeviceType     string `json:"device_type"`
-}
-
-type FreeboxAPI struct {
-	apiVersion   *FreeboxAPIVersion
-	queryVersion int
 }
 
 const (
@@ -40,6 +40,10 @@ const (
 	// FreeboxDiscoveryMDNS Freebox discovery by mDNS on service _fbx-api._tcp
 	FreeboxDiscoveryMDNS
 )
+
+/*
+ * FreeboxAPI
+ */
 
 func NewFreeboxAPI(client *FreeboxHttpClient, discovery FreeboxDiscovery, forceApiVersion int) (*FreeboxAPI, error) {
 	result := &FreeboxAPI{}
@@ -70,20 +74,6 @@ func (f *FreeboxAPI) IsValid() bool {
 		f.queryVersion > 0
 }
 
-func (f *FreeboxAPIVersion) IsValid() bool {
-	if f == nil {
-		return false
-	}
-	return f.APIDomain != "" &&
-		f.UID != "" &&
-		f.HTTPSAvailable &&
-		f.HTTPSPort != 0 &&
-		f.DeviceName != "" &&
-		f.APIVersion != "" &&
-		f.APIBaseURL != "" &&
-		f.DeviceType != ""
-}
-
 func (f *FreeboxAPI) GetURL(path string, miscPath ...interface{}) (string, error) {
 	if !f.IsValid() {
 		return "", errors.New("invalid FreeboxAPIVersion")
@@ -102,6 +92,44 @@ func (f *FreeboxAPI) GetURL(path string, miscPath ...interface{}) (string, error
 func (f *FreeboxAPI) GetVersion() string {
 	return f.apiVersion.APIVersion
 }
+
+/*
+ * FreeboxAPIVersion
+ */
+
+func (f *FreeboxAPIVersion) IsValid() bool {
+	if f == nil {
+		return false
+	}
+	return f.APIDomain != "" &&
+		f.UID != "" &&
+		f.HTTPSAvailable &&
+		f.HTTPSPort != 0 &&
+		f.DeviceName != "" &&
+		f.APIVersion != "" &&
+		f.APIBaseURL != "" &&
+		f.DeviceType != ""
+}
+
+func (f *FreeboxAPIVersion) getQueryApiVersion(forceApiVersion int) (int, error) {
+	versionSplit := strings.Split(f.APIVersion, ".")
+	if len(versionSplit) != 2 {
+		return 0, fmt.Errorf("could not decode the api version \"%s\"", f.APIVersion)
+	}
+	if apiVersionFromDiscovery, err := strconv.Atoi(versionSplit[0]); err != nil {
+		return 0, err
+	} else if forceApiVersion > apiVersionFromDiscovery {
+		return 0, fmt.Errorf("could use the api version %d which is higher than %d", forceApiVersion, apiVersionFromDiscovery)
+	} else if forceApiVersion > 0 {
+		return forceApiVersion, nil
+	} else {
+		return apiVersionFromDiscovery, nil
+	}
+}
+
+/*
+ * misc
+ */
 
 func getDiscovery(discovery FreeboxDiscovery) func(client *FreeboxHttpClient) (*FreeboxAPIVersion, error) {
 	function := func(*FreeboxHttpClient) (*FreeboxAPIVersion, error) {
@@ -188,20 +216,4 @@ func newFreeboxAPIVersionMDNS(*FreeboxHttpClient) (*FreeboxAPIVersion, error) {
 	}
 
 	return nil, errors.New("MDNS timeout")
-}
-
-func (f *FreeboxAPIVersion) getQueryApiVersion(forceApiVersion int) (int, error) {
-	versionSplit := strings.Split(f.APIVersion, ".")
-	if len(versionSplit) != 2 {
-		return 0, fmt.Errorf("could not decode the api version \"%s\"", f.APIVersion)
-	}
-	if apiVersionFromDiscovery, err := strconv.Atoi(versionSplit[0]); err != nil {
-		return 0, err
-	} else if forceApiVersion > apiVersionFromDiscovery {
-		return 0, fmt.Errorf("could use the api version %d which is higher than %d", forceApiVersion, apiVersionFromDiscovery)
-	} else if forceApiVersion > 0 {
-		return forceApiVersion, nil
-	} else {
-		return apiVersionFromDiscovery, nil
-	}
 }
