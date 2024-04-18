@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 
 	"github.com/trazfr/freebox-exporter/log"
@@ -77,7 +77,7 @@ func (f *FreeboxHttpClientBase) do(req *http.Request, out interface{}) error {
 	{
 		defer res.Body.Close()
 
-		body, err = ioutil.ReadAll(res.Body)
+		body, err = io.ReadAll(res.Body)
 		if err != nil {
 			return err
 		}

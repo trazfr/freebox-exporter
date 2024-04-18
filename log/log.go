@@ -1,7 +1,7 @@
 package log
 
 import (
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 )
@@ -32,7 +32,7 @@ func InitDebug() {
 }
 
 func Init() {
-	Debug = log.New(ioutil.Discard, "", 0)
+	Debug = log.New(io.Discard, "", 0)
 	Info = log.New(os.Stdout, "", 0)
 
 	Warning = log.New(os.Stdout,
