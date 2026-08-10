@@ -6,6 +6,10 @@ Prometheus exporter for the [Freebox](https://www.free.fr/freebox/)
 
 ## Install
 
+### Docker
+
+See [docker/README.md](docker/README.md) for Docker deployment with docker-compose.
+
 ### Since Golang 1.16
 
 Having a working Golang >= 1.16 environment using Go modules:

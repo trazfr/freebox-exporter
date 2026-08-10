@@ -1,0 +1,23 @@
+services:
+  freebox-exporter:
+    image: ghcr.io/<OWNER>/freebox-exporter:latest
+    # Uncomment to build locally instead:
+    # build: .
+    container_name: freebox-exporter
+    ports:
+      - "9094:9091"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - DEBUG=false
+      - HOST_DETAILS=false
+      - HTTP_DISCOVERY=false
+      - LISTEN_ADDRESS=:9091
+      - TOKEN_FILE=/app/data/token.json
+    networks:
+      - zethis
+    restart: unless-stopped
+
+networks:
+  zethis:
+    external: true
